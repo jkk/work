@@ -1,40 +1,35 @@
 (ns work.graph-test
-  (:require [work.queue :as q] [clojure.zip :as zip])
+  (:require [work.queue :as q]
+	    [clojure.zip :as zip])
   (:use clojure.test
 	plumbing.core
 	work.graph))
 
-(deftest table-test
-  (is (= {:a 1
-          :b 2}
-         (table :a 1 :b 2)))
-  (is (= {:a 1
-          :b 2
-          :c 2
-          :d 2}
-         (table :a 1 [:b :c :d] 2)))
-  (let [t (table :a 1 :b [#(+ 1 %) #(- % 1)])]
-    (is (= {:a 1
-            :b [5 3]}
-           (assoc t :b ((:b t) 4))))))
-
-(deftest dispatch-test
-  (is (= 4
-         ((dispatch
-           (fn [a b] (if (and a b) :foo :bar))
-           (table :foo #(+ %1 %2) :bar #(- %1 %2)))
-          2 2))))
+(defn queue-seq [q]
+  (sort (iterator-seq (.iterator q))))
 
 ;;TODO: copied from core-test, need to factor out to somehwere.
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
   [response-q expected-seq-size]
-  (while (< (.size response-q) expected-seq-size)
-    (Thread/sleep 100))
+  (wait-until #(= (.size response-q) expected-seq-size) 5)
   (sort (iterator-seq (.iterator response-q))))
 
+(deftest node-test
+  (let [root (node inc
+		   :inbox (inbox)
+		   :outbox (outbox)
+		   :sleep-time 0)
+	out (:out (:outbox root))]
+    (drain-to-vertex root (range 5))
+    (exec-vertex root)
+    (is (= [1] (queue-seq out)))
+    (kill-graph root)))
+
 (deftest one-node-graph-test
-  (let [root (-> (new-graph :input-data (range 5))
+  (let [root (-> (root-node)
+		 (drain-to-vertex (range 5))
+		 graph-zip
 		 (add-edge (terminal-node :f inc :id :inc))
 		 (add-edge (terminal-node :id :identity))
 		 run-graph)
@@ -45,7 +40,9 @@
 
 (deftest chain-graph-test
   ; (range 5) -> inc -> inc
-  (let [root (-> (new-graph :input-data (range 5))
+  (let [root (-> (root-node)
+		 (drain-to-vertex (range 5))
+		 graph-zip
 		 (add-edge-> (node inc))
 		 (add-edge (terminal-node :f inc :id :out))
 		 (add-edge (terminal-node :f (partial + 2) :id :plus-two))
@@ -57,17 +54,21 @@
 
 (deftest graph-test
   (let [input-data (range 1 101 1)
-        root (-> (new-graph :input-data input-data)
-                (add-edge-> (node (partial * 10) :threads 2))
-                (add-edge (terminal-node :f inc :id :output))
-                run-graph)
+        root (-> (root-node)
+		 (drain-to-vertex input-data)
+		 graph-zip
+		 (add-edge-> (node (partial * 10) :threads 2))
+		 (add-edge (terminal-node :f inc :id :output))
+		 run-graph)
 	out (terminal-queues root)]
     (is (= (map (fn [x] (inc (* 10 x))) (range 1 101 1))
 	   (wait-for-complete-results (:output out) (count input-data))))
     (kill-graph root)))
 
 (deftest simple-dispatch-test
-  (let [root (-> (new-graph :input-data [1 2 3 4 5])
+  (let [root (-> (root-node)
+		 (drain-to-vertex [1 2 3 4 5])
+		 graph-zip
 		 (add-edge-> (node identity))
 		 (add-edge (terminal-node :id :even)
 			   :when even?)
@@ -86,11 +87,13 @@
     (is (= (-> outs :plus-1 seq sort) (map inc [1 3 5])))))
 
 (deftest transform-test
-  (let [root (-> (new-graph :input-data [[:a :b :c] [:d :e :f]])
+  (let [root (-> (root-node)
+		 (drain-to-vertex [[:a :b :c] [:d :e :f]])
+		 graph-zip
 		 (add-edge-> (node (fn [x] (str "a" x))
 				   :threads 1)				   
 			     :convert-task (fn [x]		       
-					   (identity x)))
+					     (identity x)))
 		 (add-edge (terminal-node :id :out))
 		 run-graph)]
     (Thread/sleep 1000)
@@ -99,29 +102,10 @@
 
 (deftest simple-sideffect-test
   (let [a (atom nil)
-	root (-> (new-graph :input-data [1 2 3 4 5])		 
+	root (-> (root-node)
+		 (drain-to-vertex [1 2 3 4 5])
+		 graph-zip
 		 (add-edge-> (fn [x] (swap! a conj x)))
 		 run-graph)]
     (Thread/sleep 2000)
     (is (= (sort @a) [1 2 3 4 5]))))
-
-(deftest meter-test
-  (let [root (-> (new-graph :input-data (range 1000))
-		 (add-edge-> (node inc :id :inc))
-		 (add-edge-> (node (partial + 2) :id :+2))
-		 (add-edge (terminal-node :id :done))
-		 run-graph)
-	out (-> root terminal-queues :done)]
-    (wait-until #(= (count out) 1000) 20)
-    (println (meter-graph root))
-    (is (every?
-	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
-	   (and (= num-out-tasks 1000)
-		(= num-in-tasks 1000)))
-	 (meter-graph root)))
-    (reset-meter root)
-    (is (every?
-	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
-	   (and (zero? num-out-tasks)
-		(zero? num-in-tasks)))
-	 (meter-graph root)))))

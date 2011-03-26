@@ -103,8 +103,6 @@
 (defn sleeper [& [sleep-time]]
   (fn [] (Thread/sleep (or sleep-time 5000))))
 
-;;takes gets work from a scheduler, does the work, and puts it out.
-;;scheduler deals with the policy for work-steadling.
 (defn work [scheduler & [wait]]
  (fn []
   (let [yield (or wait (sleeper))

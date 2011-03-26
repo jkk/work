@@ -7,48 +7,15 @@
    [work.queue :as workq])
   (:use    [plumbing.core ]))
 
-(defn table
-  "takes kv pairs.
-keys can be vectors of keys, matching a fn.
-values can be vectors of fns to apply in sequential order."
-  [& pairs]
-  (apply hash-map (flatten (map (fn [[k v]]
-			    (let [f (if (vector? v)
-				      (apply juxt v)
-				      v)]
-			      (if (vector? k)
-				(map (fn [ki] [ki f]) k)
-				[k f])))
-			  (partition 2 2 pairs)))))
-
-(defn dispatch
-"takes a dispatch fn and dispatch table(s).
-returns a fn taking args, dispatching on args, and applying dispatch fn to args."
-  [d & tables]
-  (let [table (apply merge tables)]
-    (fn [& args]
-      (let [f (table (apply d args))]	    
-	(when-not f
-          (log/error (format "unable to dispatch on %s." (pr-str args))))
-	(apply f args)))))
-
-;; Core Vertex Protocols
-
 (defprotocol Inbox
-  (receive-message [this src msg] "notifcation of msg from src")
-  (poll-message [this] "get message from inbox. blocking. returns :eof when done"))
+  (receive-message [this msg])
+  (poll-message [this]))
 
 (defprotocol Outbox
-  (broadcast [this src x]
-    "broadcast output x to neighbors or for side-effect")
-  (add-listener [this listener]
-     "return new Outbox with another listener.
-      OPTIONAL."))
-
-;;  New Graph Stuff
+  (broadcast [this x])
+  (add-listener [this listener]))
 
 (defrecord Vertex [f inbox outbox])
-
 (defrecord Edge [when convert-task to])
 
 (defn- mk-edge
@@ -59,94 +26,48 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   (Edge. when convert-task to))
 
 (defn drain-to-vertex
-  "send seq to vertex inbox, returns vertex"
   [vertex xs]
-  (doseq [x xs] (receive-message (:inbox vertex) :outside x))
+  (doseq [x xs] (receive-message (:inbox vertex) x))
   vertex)
-
-;; Inbox implementations
 
 (defrecord  InboxQueue [q]
   Inbox
-  (receive-message [this src msg] (workq/offer q msg))
+  (receive-message [this msg] (workq/offer q msg))
   (poll-message [this] (workq/poll q)))
-
-;; Outbox Impls
 
 (defrecord  DefaultOutbox [out-edges]
   Outbox
-  (broadcast [this src x]
+  (broadcast [this x]
 	     (doseq [{:keys [when,convert-task,to]} out-edges
 		     :when (when x)
 		     task (convert-task x)]
 	       (cond
-		(= to :recur) (receive-message (:inbox src) src task)
 		(fn? to) (to task)
-		(instance? Vertex to) (receive-message (:inbox to) src task))))
+		(instance? Vertex to) (receive-message (:inbox to) task))))
   (add-listener [this listener] (update-in this [:out-edges] conj listener)))
 
 (defrecord  TerminalOutbox [out]
   Outbox
-  (broadcast [this src x]
+  (broadcast [this x]
      (workq/offer out x)))
 
-(defn- kill-vertex
-  [vertex]
-  (-?> vertex :pool deref work/two-phase-shutdown))
+(defn inbox [] (InboxQueue. (workq/local-queue)))
+(defn outbox [] (TerminalOutbox. (workq/local-queue)))
 
-(defn- execute-task? [vertex]
-  (not
-   (and (instance? DefaultOutbox (:outbox vertex))
-	(some
-	 (fn [edge]
-	   (let [trg (:to edge)]
-	     (and (instance? Vertex trg)
-		  (instance? InboxQueue (:inbox trg))
-		  (>= (-> trg :inbox :q seq count)
-		      (or (-> trg :max-inbox-size) (* 3 (or (:threads trg)
-							    (work/available-processors))))))))
-	 (-> vertex :outbox :out-edges)))))
+(defn exec-vertex
+  [{:keys [f,inbox,outbox,sleep-time,exec,make-tasks]
+    :or {sleep-time 10
+	 exec work/sync}
+    :as vertex}]
+  ((work/work (fn []
+		{:f f
+		 :in #(poll-message inbox)
+		 :out #(broadcast outbox %)
+		 :exec exec})
+	      (work/sleeper sleep-time)))
+  vertex)
 
-(defn wrap-fn [f meter]
-  (with-ex ; if client has own error handling, 
-    (fn [e f args] ; we don't count that
-      ((logger) e f args)
-      (swap! meter #(update-in % [:num-err-tasks] inc)))
-    (fn [task]
-      (when task (f task)))))
-
-(defn wrap-in [vertex inbox meter]
-  (with-log
-    (fn [& args]		       
-      (if (not (execute-task? vertex))
-	(Thread/yield)
-	(let [input (apply poll-message inbox args)]
-	  (when (and input (not= input :eof))
-	    (swap! meter #(-> %
-			      (update-in [:num-in-tasks] inc)
-			      (update-in [:inbox-size]
-					 (constantly
-					  (when (instance?
-						 InboxQueue inbox)
-					    (-> inbox :q count)))))))
-	  input)))))
-
-(defn wrap-out [vertex inbox outbox meter make-tasks]
-  (with-log
-    (fn [x]
-      (when (not (nil? x))
-	(swap! meter
-	       #(-> %
-		    (update-in [:num-out-tasks] inc)
-		    (update-in [:inbox-size]
-			       (constantly
-				(when
-				    (instance? InboxQueue inbox)
-				  (-> inbox :q count))))))
-	(doseq [task (make-tasks x)]
-	  (broadcast outbox vertex task))))))
-
-(defn- run-vertex
+(defn run-vertex
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
@@ -154,19 +75,14 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 	 exec work/sync}
     :as vertex}]
   (when (instance? Vertex vertex)
-    (let [meter (atom {:num-in-tasks 0
-		       :num-err-tasks 0
-		       :inbox-size 0
-		       :num-out-tasks 0})	  
-	  work-producer
+    (let [work-producer
 	  (work/work (fn []
-		  {:f (wrap-fn f meter) 
-		   :in (wrap-in vertex inbox meter)
-		   :out (wrap-out vertex inbox outbox meter make-tasks)
+		  {:f f
+		   :in #(poll-message inbox)
+		   :out #(broadcast outbox %)
 		   :exec exec})
 		(work/sleeper sleep-time))]
 	  (assoc vertex
-	    :meter meter
 	    :pool (future (work/queue-work
 			   work-producer
 			   threads))))))
@@ -205,20 +121,8 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
          :outbox (TerminalOutbox. out)
          (apply concat (seq opts))))
 
-(defn- root-node
-  "make the root node. same as node except :input-data argument
-   lets you pass data to the node's inbox directly"
-  [& {:keys [input-data]  :as opts}]
-  (apply node identity
-           :id :root
-           :inbox (InboxQueue. (if input-data
-                     (workq/local-queue input-data)
-                     (workq/local-queue)))
-           (apply concat  (seq opts))))
-
-(defn- add-edge-internal
-  [src out-edge]
-  (update-in src [:outbox :out-edges] conj out-edge))
+(defn root-node []
+  (node identity :id :root))
 
 (defn graph-zip
   "make a zipper out of a graph. each zipper location is either
@@ -252,13 +156,9 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    ; root 
    root))
 
-(defn new-graph
-  "construct a new graph (just the root vertex). Use :input-data
-   optional arg pass in data. Root vertex gets :id of :root.
-
-   Returns graph zipper lcoation"
-  [& {:keys [input-data] :as opts}]
-  (graph-zip (apply root-node (apply concat (seq opts)))))
+(defn- add-edge-internal
+  [src out-edge]
+  (update-in src [:outbox :out-edges] conj out-edge))
 
 (defn add-edge
   "Add edge to current broadcast node in graph-loc. Does
@@ -294,26 +194,6 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 	:when (and loc (->> loc zip/node (instance? Vertex)))]
     (zip/node loc)))
 
-(defn meter-graph
-  "return a map from vertex id to a pair
-   [num-tasks secs]
-   where num-tasks is the number of tasks processed
-   and secs is the # of seconds spent processing."
-  [root]
-  (->> (all-vertices root)
-       (map (fn [{:keys [id, meter]}] [id @meter]) )
-       (into {})))
-
-(defn reset-meter
-  [root]
-  (doseq [v (all-vertices root)
-	  :let [m (:meter v)]]
-    (swap! m (constantly
-		  {:num-in-tasks 0
-		   :num-err-tasks 0
-		   :inbox-size 0
-		   :num-out-tasks 0}))))
-
 (defn run-graph
   "launches in DFS order the vertex processs and returns a map from
    terminal node ids (possibly gensymd) to their out-queues"
@@ -328,16 +208,16 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 	(zip/root loc)
 	(recur (-> loc update zip/next))))))
 
-(defn kill-graph [root & to-exclude]
-  (let [to-exclude (into #{} to-exclude)]
-    (doseq [n (-> root all-vertices)
-	    :when (not (to-exclude (:id n)))]
-      (kill-vertex n))))
-
 (defn terminal-queues [root]
   (reduce
    (fn [res v]
      (assoc res (:id v) (-> v :outbox :out)))
    {}
    (filter #(instance? TerminalOutbox (:outbox %))
-	   (all-vertices root))))
+          (all-vertices root))))
+
+(defn kill-graph [root & to-exclude]
+  (let [to-exclude (into #{} to-exclude)]
+    (doseq [n (-> root all-vertices)
+	    :when (not (to-exclude (:id n)))]
+      (-?> n :pool deref work/two-phase-shutdown))))

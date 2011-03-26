@@ -1,4 +1,4 @@
-(defproject work "0.2.7-SNAPSHOT"
+(defproject work "0.2.8-SNAPSHOT"
   :description "Clojure workers."
   :url "http://github.com/getwoven/work"
   :dependencies [[org.clojure/clojure "1.2.0"]
