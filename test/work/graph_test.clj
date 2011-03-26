@@ -15,17 +15,6 @@
   (wait-until #(= (.size response-q) expected-seq-size) 5)
   (sort (iterator-seq (.iterator response-q))))
 
-(deftest node-test
-  (let [root (node inc
-		   :inbox (inbox)
-		   :outbox (outbox)
-		   :sleep-time 0)
-	out (:out (:outbox root))]
-    (drain-to-vertex root (range 5))
-    (exec-vertex root)
-    (is (= [1] (queue-seq out)))
-    (kill-graph root)))
-
 (deftest one-node-graph-test
   (let [root (-> (root-node)
 		 (drain-to-vertex (range 5))
@@ -36,6 +25,18 @@
 	out (terminal-queues root)]
     (is (= (range 1 6) (wait-for-complete-results (:inc out) 5)))
     (is (= (range 5) (wait-for-complete-results (:identity out) 5)))
+    (kill-graph root)))
+
+(deftest multimap-graph-test
+  (let [root (-> (root-node)
+		 (drain-to-vertex (range 4))
+		 graph-zip
+		 (add-edge (terminal-node :f identity
+					  :id :multimap
+					  :multimap (fn [x] (range x))))
+		 run-graph)
+	out (terminal-queues root)]
+    (is (= [0 0 0 1 1 2] (wait-for-complete-results (:multimap out) 5)))
     (kill-graph root)))
 
 (deftest chain-graph-test

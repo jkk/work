@@ -12,8 +12,7 @@
   (poll-message [this]))
 
 (defprotocol Outbox
-  (broadcast [this x])
-  (add-listener [this listener]))
+  (broadcast [this x]))
 
 (defrecord Vertex [f inbox outbox])
 (defrecord Edge [when convert-task to])
@@ -43,8 +42,7 @@
 		     task (convert-task x)]
 	       (cond
 		(fn? to) (to task)
-		(instance? Vertex to) (receive-message (:inbox to) task))))
-  (add-listener [this listener] (update-in this [:out-edges] conj listener)))
+		(instance? Vertex to) (receive-message (:inbox to) task)))))
 
 (defrecord  TerminalOutbox [out]
   Outbox
@@ -54,38 +52,28 @@
 (defn inbox [] (InboxQueue. (workq/local-queue)))
 (defn outbox [] (TerminalOutbox. (workq/local-queue)))
 
-(defn exec-vertex
-  [{:keys [f,inbox,outbox,sleep-time,exec,make-tasks]
-    :or {sleep-time 10
-	 exec work/sync}
-    :as vertex}]
-  ((work/work (fn []
-		{:f f
-		 :in #(poll-message inbox)
-		 :out #(broadcast outbox %)
-		 :exec exec})
-	      (work/sleeper sleep-time)))
-  vertex)
-
 (defn run-vertex
   "launch vertex return vertex with :pool field"
-  [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
+  [{:keys [f,inbox,outbox,threads,sleep-time,exec,multimap]
     :or {threads (work/available-processors)
 	 sleep-time 10
-	 exec work/sync}
+	 exec work/sync
+	 multimap list}
     :as vertex}]
   (when (instance? Vertex vertex)
     (let [work-producer
 	  (work/work (fn []
-		  {:f f
-		   :in #(poll-message inbox)
-		   :out #(broadcast outbox %)
-		   :exec exec})
-		(work/sleeper sleep-time))]
-	  (assoc vertex
-	    :pool (future (work/queue-work
-			   work-producer
-			   threads))))))
+		       {:f f
+			:in #(poll-message inbox)
+			:out (fn [x]
+			       (doall (map #(broadcast outbox %)
+					   (multimap x))))
+			:exec exec})
+		     (work/sleeper sleep-time))]
+      (assoc vertex
+	:pool (future (work/queue-work
+		       work-producer
+		       threads))))))
 
 (defn node
   "make a node. only required argument is the fn f at the vertex.
