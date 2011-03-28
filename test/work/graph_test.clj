@@ -22,6 +22,19 @@
     (is (= (range 1 6) (wait-for-complete-results incq 5)))
     (is (= (range 5) (wait-for-complete-results idq 5)))))
 
+(deftest one-node-observer-test
+  (let [a (atom 0)
+	obs (fn [f]
+	      (fn [& args]
+		(swap! a inc)
+		(apply f args)))
+	incq (q/local-queue)
+	root (-> (graph)
+		 (each (out inc incq)))]
+    (run-sync root (range 5) obs)
+    (is (= (range 1 6) (wait-for-complete-results incq 5)))
+    (is (= 5 @a))))
+
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
 	root (-> (graph)
@@ -62,6 +75,6 @@
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))
 	[in running] (run-pool root 10 (range 21))]
-    (is (= (range 2 21 2) (wait-for-complete-results incq 5)))
-    (is (= (range 0 21 2) (wait-for-complete-results idq 5)))
+    (is (= (range 2 21 2) (sort (wait-for-complete-results incq 5))))
+    (is (= (range 0 21 2) (sort (wait-for-complete-results idq 5))))
     (kill-graph running)))

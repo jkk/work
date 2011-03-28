@@ -55,27 +55,28 @@
 	:when (and loc (->> loc zip/node))]
     (zip/node loc)))
 
-(defn graph-comp [{:keys [f children multimap when]}]
-  (if (not children)
-    (if (not when) f
-	(fn [& args]
-	  (if (apply when args)
-	    (apply f args))))
-    (fn [& args]
-      (let [fx (apply f args)]
-	(doseq [child children
-		:let [childf (graph-comp child)]]
-	  (if (not multimap)
-	    (childf fx)
-	    (doseq [x fx]
-	      (childf x))))))))
+(defn graph-comp [{:keys [f children multimap when]} & [observer]]
+  (let [f (if observer (observer f) f)]
+    (if (not children)
+      (if (not when) f
+	  (fn [& args]
+	    (if (apply when args)
+	      (apply f args))))
+      (fn [& args]
+	(let [fx (apply f args)]
+	  (doseq [child children
+		  :let [childf (graph-comp child)]]
+	    (if (not multimap)
+	      (childf fx)
+	      (doseq [x fx]
+		(childf x)))))))))
 
 (defn out [f q]
   (fn [& args]
     (workq/offer q (apply f args))))
 
-(defn run-sync [graph-loc data]
-  (let [f (graph-comp (zip/root graph-loc))]
+(defn run-sync [graph-loc data & [obs]]
+  (let [f (graph-comp (zip/root graph-loc) obs)]
     (doseq [x data]
       (f x))))
 
@@ -100,9 +101,9 @@
 	(zip/root loc)
 	(recur (-> loc update zip/next))))))
 
-(defn run-pool [graph-loc threads data]
+(defn run-pool [graph-loc threads data & [obs]]
   (let [in (workq/local-queue data)
-	f (graph-comp (zip/root graph-loc))
+	f (graph-comp (zip/root graph-loc) obs)
 	rewritten-graph (-> (graph)
 			    (each f
 				  :in #(workq/poll in)
