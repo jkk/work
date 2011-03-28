@@ -16,12 +16,6 @@
       (merge opts)
       (assoc :id id)))
 
-(defn multimap [f & args]
-  (apply node f :multimap true args))
-
-(defn root-node []
-  (node identity :id :root))
-
 (defn graph-zip
   [root]
   (zip/zipper
@@ -34,6 +28,10 @@
    ; root 
    root))
 
+(defn graph []
+  (graph-zip
+   (node identity :id :root)))
+
 (defn- add-child
   [parent child]
   (update-in parent [:children] conj child))
@@ -42,12 +40,15 @@
   [parent-loc child]
   (zip/edit parent-loc add-child child))
 
-(defn child->
-  [parent-loc child]
-  (-> parent-loc
-      (zip/edit add-child child)
-      zip/down
-      zip/rightmost))
+(defn each [parent-loc & args]
+  (child parent-loc
+	 (apply node args)))
+
+(defn multimap [parent-loc f & args]
+  (child parent-loc
+	 (apply node f :multimap true args)))
+
+(def >> (comp zip/rightmost zip/down))
 
 (defn- all-vertices [root]
   (for [loc  (zf/descendants (graph-zip root))
@@ -56,7 +57,7 @@
 
 (defn run-vertex
   "launch vertex return vertex with :pool field"
-  [{:keys [f,in,out,threads,sleep-time,exec,multimap]
+  [{:keys [f,in,out,threads,sleep-time,exec]
     :or {threads (work/available-processors)
 	 sleep-time 10
 	 exec work/sync
@@ -66,9 +67,7 @@
 	(work/work (fn []
 		     {:f f
 		      :in #(workq/poll in)
-		      :out (fn [x]
-			     (doall (map #(workq/offer out %)
-					 (multimap x))))
+		      :out #(workq/offer out %)
 		      :exec exec})
 		   (work/sleeper sleep-time))]
     (assoc vertex
@@ -96,11 +95,12 @@
 	    (apply f args))))
     (fn [& args]
       (let [fx (apply f args)]
-	(doall (map (fn [child]
-		      (if (not multimap)
-			((graph-comp child) fx)
-			(doall (map (graph-comp child) fx))))
-		    children))))))
+	(doseq [child children
+		:let [childf (graph-comp child)]]
+	  (if (not multimap)
+	    (childf fx)
+	    (doseq [x fx]
+	      (childf x))))))))
 
 (defn out [f q]
   (fn [& args]

@@ -75,26 +75,18 @@
     res))
 
 (defn map-work
-  "like clojure's map or pmap, but takes a number of threads, executes eagerly, and blocks.
-
-   CHANGE 11/26/2010: num-threads arguments 2nd rather than last arg"
-  [f num-threads xs]  
-  (if (seq? num-threads)    
-    (do (log/warn "map-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
-	(recur f xs num-threads))
-    (seq-work (doall (map (fn [x] #(f x)) xs)) num-threads)))
+  [f num-threads xs]
+  (seq-work
+   (doall (map (fn [x] #(f x)) xs))
+   num-threads))
 
 (defn filter-work
-  "use work to perform a filter operation"
   [f num-threads xs]
-  (if (seq? num-threads)
-    (do (log/warn "filter-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
-	(recur f xs num-threads))
-    (filter identity
-	    (map-work
-	     (fn [x] (if (f x) x nil))	       
-	     num-threads
-	     xs))))
+  (filter identity
+	  (map-work
+	   (fn [x] (if (f x) x nil))	       
+	   num-threads
+	   xs)))
 
 ;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
 (defn async [f task out] (f task out))
@@ -115,19 +107,6 @@
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
 (defn queue-work
-  "schedule-work one worker function f per thread.
-  f can either be a fn that is directly applied to each task (all workers use the same fn) or
-  f builds and evals a worker from a fn & args passed over the queue (each worker executes an arbitrary fn.)
-  Examples of the latter are clj-worker and json-wroker.
-
-  Each worker fn polls the work queue via get-work fn, applies a fn to each dequeued item, puts the result with
-  put-done and recursively checks for more work.  If it doesn't find new work, it waits until checking for more work.
-
-  The workers can run in asynchronous mode, where the put-done function is passed to the worker function f,
-  and f is responsible for ensuring that put-done is appropriately called.
-  Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
-
-  All error and fault tolernace should be done by client using plumbing.core."
   [work & [threads]]
   (let [threads (or threads (available-processors))
         pool (Executors/newFixedThreadPool threads)
