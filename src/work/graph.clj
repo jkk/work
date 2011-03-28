@@ -79,16 +79,10 @@
     (doseq [x data]
       (f x))))
 
-(defn run-pool [graph-loc data]
-  (let [f (graph-comp (zip/root graph-loc))]
-    (doseq [x data]
-      (f x))))
-
 (defn run-vertex
-  [{:keys [f,in,out,threads,sleep-time,exec]
+  [{:keys [threads,sleep-time]
     :or {threads (work/available-processors)
-	 sleep-time 10
-	 exec work/sync}
+	 sleep-time 10}
     :as vertex}]
   (assoc vertex
     :pool (future (work/queue-work
@@ -105,6 +99,16 @@
       (if (zip/end? loc)
 	(zip/root loc)
 	(recur (-> loc update zip/next))))))
+
+(defn run-pool [graph-loc threads data]
+  (let [in (workq/local-queue data)
+	f (graph-comp (zip/root graph-loc))
+	rewritten-graph (-> (graph)
+			    (each f
+				  :in #(workq/poll in)
+				  :out (fn [& args])
+				  :threads threads))]
+    [in (run-graph rewritten-graph)]))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]

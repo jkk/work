@@ -54,3 +54,14 @@
     (run-sync root (range 5))
     (is (= (range 2 5 2) (wait-for-complete-results incq 5)))
     (is (= (range 0 5 2) (wait-for-complete-results idq 5)))))
+
+(deftest pool-test
+  (let [incq (q/local-queue)
+	idq (q/local-queue)
+	root (-> (graph)
+		 (each (out identity idq) :when even?)
+		 (each (out inc incq) :when odd?))
+	[in running] (run-pool root 10 (range 21))]
+    (is (= (range 2 21 2) (wait-for-complete-results incq 5)))
+    (is (= (range 0 21 2) (wait-for-complete-results idq 5)))
+    (kill-graph running)))
