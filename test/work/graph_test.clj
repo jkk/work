@@ -18,7 +18,7 @@
 	root (-> (graph)
 		 (each (out inc incq))
 		 (each (out identity idq)))]
-    (mono-run root (range 5))
+    (run-sync root (range 5))
     (is (= (range 1 6) (wait-for-complete-results incq 5)))
     (is (= (range 5) (wait-for-complete-results idq 5)))))
 
@@ -28,7 +28,7 @@
 		 (multimap range)
 		 >>
 		 (each (out inc multiq)))]
-    (mono-run root (range 4))
+    (run-sync root (range 4))
     (is (= [1 1 2 1 2 3]
 	     (wait-for-complete-results multiq 5)))))
 
@@ -41,7 +41,7 @@
 		 (each (out inc incq))
 		 (each (out (partial + 2)
 			     plus2q)))]
-    (mono-run root (range 5))
+    (run-sync root (range 5))
     (is (= (range 2 7) (wait-for-complete-results incq 5)))
     (is (= (range 3 8) (wait-for-complete-results plus2q 5)))))
 
@@ -51,6 +51,6 @@
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))]
-    (mono-run root (range 5))
+    (run-sync root (range 5))
     (is (= (range 2 5 2) (wait-for-complete-results incq 5)))
     (is (= (range 0 5 2) (wait-for-complete-results idq 5)))))

@@ -55,38 +55,6 @@
 	:when (and loc (->> loc zip/node))]
     (zip/node loc)))
 
-(defn run-vertex
-  "launch vertex return vertex with :pool field"
-  [{:keys [f,in,out,threads,sleep-time,exec]
-    :or {threads (work/available-processors)
-	 sleep-time 10
-	 exec work/sync
-	 multimap list}
-    :as vertex}]
-  (let [work-producer
-	(work/work (fn []
-		     {:f f
-		      :in #(workq/poll in)
-		      :out #(workq/offer out %)
-		      :exec exec})
-		   (work/sleeper sleep-time))]
-    (assoc vertex
-      :pool (future (work/queue-work
-		     work-producer
-		     threads)))))
-
-(defn run-graph
-  "launches in DFS order the vertex processs and returns a map from
-   terminal node ids (possibly gensymd) to their out-queues"
-  [graph-loc]
-  (let [root (zip/root graph-loc)
-	update (fn [loc]
-		 (zip/edit loc run-vertex))]
-    (loop [loc (graph-zip root)]
-      (if (zip/end? loc)
-	(zip/root loc)
-	(recur (-> loc update zip/next))))))
-
 (defn graph-comp [{:keys [f children multimap when]}]
   (if (not children)
     (if (not when) f
@@ -106,9 +74,37 @@
   (fn [& args]
     (workq/offer q (apply f args))))
 
-(defn mono-run [graph-loc data]
+(defn run-sync [graph-loc data]
   (let [f (graph-comp (zip/root graph-loc))]
-       (doall (map f data))))
+    (doseq [x data]
+      (f x))))
+
+(defn run-pool [graph-loc data]
+  (let [f (graph-comp (zip/root graph-loc))]
+    (doseq [x data]
+      (f x))))
+
+(defn run-vertex
+  [{:keys [f,in,out,threads,sleep-time,exec]
+    :or {threads (work/available-processors)
+	 sleep-time 10
+	 exec work/sync}
+    :as vertex}]
+  (assoc vertex
+    :pool (future (work/queue-work
+		   (work/work (fn [] vertex)
+			      (work/sleeper sleep-time))
+		   threads))))
+
+(defn run-graph
+  [graph-loc]
+  (let [root (zip/root graph-loc)
+	update (fn [loc]
+		 (zip/edit loc run-vertex))]
+    (loop [loc (graph-zip root)]
+      (if (zip/end? loc)
+	(zip/root loc)
+	(recur (-> loc update zip/next))))))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]
