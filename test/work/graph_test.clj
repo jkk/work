@@ -5,7 +5,7 @@
 	plumbing.core
 	work.graph))
 
-;;TODO: copied from core-test, need to factor out to somehwere.
+;; ;;TODO: copied from core-test, need to factor out to somehwere.
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
   [response-q expected-seq-size]
@@ -33,7 +33,7 @@
 		 (each (out inc incq)))]
     (run-sync root (range 5) obs)
     (is (= (range 1 6) (wait-for-complete-results incq 5)))
-    (is (= 5 @a))))
+    (is (= 10 @a)))) ;;observes the root identity node and child.
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
@@ -54,6 +54,19 @@
     (run-sync root (range 4))
     (is (= [1 2]
 	     (wait-for-complete-results multiq 5)))))
+
+(deftest chain-pipeline-test
+  (let [incq (q/local-queue)
+	root (-> (graph)
+		 (each inc)
+		 >>
+		 (each inc)
+		 >>
+		 (each inc)
+		 >>
+		 (each (out inc incq)))]
+    (run-sync root (range 5))
+    (is (= (range 4 9) (wait-for-complete-results incq 5)))))
 
 (deftest chain-graph-test
   (let [incq (q/local-queue)
@@ -88,3 +101,12 @@
     (is (= (range 2 21 2) (sort (wait-for-complete-results incq 5))))
     (is (= (range 0 21 2) (sort (wait-for-complete-results idq 5))))
     (kill-graph running)))
+
+(deftest higher-order-observation
+  (let [incq (q/local-queue)
+	[a l] (atom-logger)
+      root (-> (graph)
+	       (each (out inc incq)))]
+      (run-sync root [1 2 "fuck" 3] (partial with-ex l))
+      (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
+      (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))

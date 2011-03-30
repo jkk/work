@@ -68,13 +68,13 @@
       (f x))))
 
 (defn graph-comp [{:keys [f children multimap when]} & [observer]]
-  (let [f (if observer (observer f) f)]
+  (let [obsf (if observer (observer f) f)]
     (if (not children)
-      (pred-f f when)
+      (pred-f obsf when)
       (pred-f (fn [& args]
-		 (let [fx (apply f args)]
+		 (let [fx (apply obsf args)]
 		   (doseq [child children
-			   :let [childf (graph-comp child)]]
+			   :let [childf (graph-comp child observer)]]
 		     (multi-f childf multimap fx))))
 	       when))))
 
