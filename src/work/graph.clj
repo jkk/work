@@ -55,21 +55,28 @@
 	:when (and loc (->> loc zip/node))]
     (zip/node loc)))
 
+(defn pred-f [f when]
+  (if (not when) f
+      (fn [& args]
+	(if (apply when args)
+	  (apply f args)))))
+
+(defn multi-f [f multimap v]
+  (if (not multimap)
+    (f v)
+    (doseq [x v]
+      (f x))))
+
 (defn graph-comp [{:keys [f children multimap when]} & [observer]]
   (let [f (if observer (observer f) f)]
     (if (not children)
-      (if (not when) f
-	  (fn [& args]
-	    (if (apply when args)
-	      (apply f args))))
-      (fn [& args]
-	(let [fx (apply f args)]
-	  (doseq [child children
-		  :let [childf (graph-comp child)]]
-	    (if (not multimap)
-	      (childf fx)
-	      (doseq [x fx]
-		(childf x)))))))))
+      (pred-f f when)
+      (pred-f (fn [& args]
+		 (let [fx (apply f args)]
+		   (doseq [child children
+			   :let [childf (graph-comp child)]]
+		     (multi-f childf multimap fx))))
+	       when))))
 
 (defn out [f q]
   (fn [& args]

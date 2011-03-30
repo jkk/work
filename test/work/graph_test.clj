@@ -45,6 +45,16 @@
     (is (= [1 1 2 1 2 3]
 	     (wait-for-complete-results multiq 5)))))
 
+(deftest multimap-with-pred-test
+  (let [multiq (q/local-queue)
+	root (-> (graph)
+		 (multimap range :when even?)
+		 >>
+		 (each (out inc multiq)))]
+    (run-sync root (range 4))
+    (is (= [1 2]
+	     (wait-for-complete-results multiq 5)))))
+
 (deftest chain-graph-test
   (let [incq (q/local-queue)
 	plus2q (q/local-queue)
