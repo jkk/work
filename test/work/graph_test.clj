@@ -68,6 +68,22 @@
     (run-sync root (range 5))
     (is (= (range 4 9) (wait-for-complete-results incq 5)))))
 
+(deftest chain-multicast-pipeline-test
+  (let [incq (q/local-queue)
+	root (-> (graph)
+		 (each inc)
+		 >>
+		 (each inc)
+		 (each inc)
+		 (each inc)
+		 (multimap range)
+		 >>
+		 (each inc)
+		 >>
+		 (each (out inc incq)))]
+    (run-sync root (range 5))
+    (is (= [2 2 3 2 3 4 2 3 4 5 2 3 4 5 6] (wait-for-complete-results incq 5)))))
+
 (deftest chain-graph-test
   (let [incq (q/local-queue)
 	plus2q (q/local-queue)

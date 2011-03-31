@@ -48,7 +48,7 @@
   (child parent-loc
 	 (apply node f :multimap true args)))
 
-(def >> (comp zip/rightmost zip/down))
+(def >> (comp zip/leftmost zip/down))
 
 (defn- all-vertices [root]
   (for [loc  (zf/descendants (graph-zip root))
