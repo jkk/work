@@ -25,18 +25,18 @@
 				 (<= (.decrementAndGet counter) 0)
  			       (done bucket)))))]
     (reify IAgg
-	     (agg [this k v]
-			    (do-and-check
-			     #(bucket-update
-			       bucket k (fn [x] (merge [x v])))))
-	     (agg [this v]
-			    (do-and-check
-			     #(bucket-merge-to!
-			       v
-			       (with-merge bucket
-				 (fn [k & args] (merge args))))))
-	     (agg-inc [this v] (.addAndGet counter v))
-	     (agg-inc [this] (.incrementAndGet counter)))))
+	   (agg [this k v]
+		(do-and-check
+		 #(bucket-update
+		   bucket k (fn [x] (merge [x v])))))
+	   (agg [this v]
+		(do-and-check
+		 #(bucket-merge-to!
+		   v
+		   (with-merge bucket
+		     (fn [k & args] (merge args))))))
+	   (agg-inc [this v] (.addAndGet counter v))
+	   (agg-inc [this] (.incrementAndGet counter)))))
 
 (defn mem-agg [merge]
   (agg-bucket (hashmap-bucket) merge

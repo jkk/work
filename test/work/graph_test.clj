@@ -1,127 +1,128 @@
 (ns work.graph-test
-  (:require [work.queue :as q] [clojure.zip :as zip])
+  (:require [work.queue :as q]
+	    [clojure.zip :as zip])
   (:use clojure.test
 	plumbing.core
 	work.graph))
 
-(deftest table-test
-  (is (= {:a 1
-          :b 2}
-         (table :a 1 :b 2)))
-  (is (= {:a 1
-          :b 2
-          :c 2
-          :d 2}
-         (table :a 1 [:b :c :d] 2)))
-  (let [t (table :a 1 :b [#(+ 1 %) #(- % 1)])]
-    (is (= {:a 1
-            :b [5 3]}
-           (assoc t :b ((:b t) 4))))))
-
-(deftest dispatch-test
-  (is (= 4
-         ((dispatch
-           (fn [a b] (if (and a b) :foo :bar))
-           (table :foo #(+ %1 %2) :bar #(- %1 %2)))
-          2 2))))
-
-;;TODO: copied from core-test, need to factor out to somehwere.
+;; ;;TODO: copied from core-test, need to factor out to somehwere.
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
   [response-q expected-seq-size]
-  (while (< (.size response-q) expected-seq-size)
-    (Thread/sleep 100))
-  (sort (iterator-seq (.iterator response-q))))
+  (wait-until #(= (.size response-q) expected-seq-size) 5)
+  (iterator-seq (.iterator response-q)))
 
 (deftest one-node-graph-test
-  (let [root (-> (new-graph :input-data (range 5))
-		 (add-edge (terminal-node :f inc :id :inc))
-		 (add-edge (terminal-node :id :identity))
-		 run-graph)
-	out (terminal-queues root)]
-    (is (= (range 1 6) (wait-for-complete-results (:inc out) 5)))
-    (is (= (range 5) (wait-for-complete-results (:identity out) 5)))
-    (kill-graph root)))
+  (let [incq (q/local-queue)
+	idq (q/local-queue)
+	root (-> (graph)
+		 (each (out inc incq))
+		 (each (out identity idq)))]
+    (run-sync root (range 5))
+    (is (= (range 1 6) (wait-for-complete-results incq 5)))
+    (is (= (range 5) (wait-for-complete-results idq 5)))))
+
+(deftest one-node-observer-test
+  (let [a (atom 0)
+	obs (fn [f]
+	      (fn [& args]
+		(swap! a inc)
+		(apply f args)))
+	incq (q/local-queue)
+	root (-> (graph)
+		 (each (out inc incq)))]
+    (run-sync root (range 5) obs)
+    (is (= (range 1 6) (wait-for-complete-results incq 5)))
+    (is (= 10 @a)))) ;;observes the root identity node and child.
+
+(deftest multimap-graph-test
+  (let [multiq (q/local-queue)
+	root (-> (graph)
+		 (multimap range)
+		 >>
+		 (each (out inc multiq)))]
+    (run-sync root (range 4))
+    (is (= [1 1 2 1 2 3]
+	     (wait-for-complete-results multiq 5)))))
+
+(deftest multimap-with-pred-test
+  (let [multiq (q/local-queue)
+	root (-> (graph)
+		 (multimap range :when even?)
+		 >>
+		 (each (out inc multiq)))]
+    (run-sync root (range 4))
+    (is (= [1 2]
+	     (wait-for-complete-results multiq 5)))))
+
+(deftest chain-pipeline-test
+  (let [incq (q/local-queue)
+	root (-> (graph)
+		 (each inc)
+		 >>
+		 (each inc)
+		 >>
+		 (each inc)
+		 >>
+		 (each (out inc incq)))]
+    (run-sync root (range 5))
+    (is (= (range 4 9) (wait-for-complete-results incq 5)))))
+
+(deftest chain-multicast-pipeline-test
+  (let [incq (q/local-queue)
+	root (-> (graph)
+		 (each inc)
+		 >>
+		 (each inc)
+		 (each inc)
+		 (each inc)
+		 (multimap range)
+		 >>
+		 (each inc)
+		 >>
+		 (each (out inc incq)))]
+    (run-sync root (range 5))
+    (is (= [2 2 3 2 3 4 2 3 4 5 2 3 4 5 6] (wait-for-complete-results incq 5)))))
 
 (deftest chain-graph-test
-  ; (range 5) -> inc -> inc
-  (let [root (-> (new-graph :input-data (range 5))
-		 (add-edge-> (node inc))
-		 (add-edge (terminal-node :f inc :id :out))
-		 (add-edge (terminal-node :f (partial + 2) :id :plus-two))
-		 run-graph)
-	outs (terminal-queues root)]
-    (is (= (range 2 7) (wait-for-complete-results (:out outs) 5)))
-    (is (= (range 3 8) (wait-for-complete-results (:plus-two outs) 5)))
-    (kill-graph root)))
+  (let [incq (q/local-queue)
+	plus2q (q/local-queue)
+	root (-> (graph)
+		 (each inc)
+		 >>
+		 (each (out inc incq))
+		 (each (out (partial + 2)
+			     plus2q)))]
+    (run-sync root (range 5))
+    (is (= (range 2 7) (wait-for-complete-results incq 5)))
+    (is (= (range 3 8) (wait-for-complete-results plus2q 5)))))
 
-(deftest graph-test
-  (let [input-data (range 1 101 1)
-        root (-> (new-graph :input-data input-data)
-                (add-edge-> (node (partial * 10) :threads 2))
-                (add-edge (terminal-node :f inc :id :output))
-                run-graph)
-	out (terminal-queues root)]
-    (is (= (map (fn [x] (inc (* 10 x))) (range 1 101 1))
-	   (wait-for-complete-results (:output out) (count input-data))))
-    (kill-graph root)))
+(deftest simple-predicate-test
+  (let [incq (q/local-queue)
+	idq (q/local-queue)
+	root (-> (graph)
+		 (each (out identity idq) :when even?)
+		 (each (out inc incq) :when odd?))]
+    (run-sync root (range 5))
+    (is (= (range 2 5 2) (wait-for-complete-results incq 5)))
+    (is (= (range 0 5 2) (wait-for-complete-results idq 5)))))
 
-(deftest simple-dispatch-test
-  (let [root (-> (new-graph :input-data [1 2 3 4 5])
-		 (add-edge-> (node identity))
-		 (add-edge (terminal-node :id :even)
-			   :when even?)
-		 (add-edge (terminal-node :id :odd)
-			   :when odd?)
-		 (add-edge (terminal-node :id :all))
-		 (add-edge (terminal-node :f inc :id :plus-1)
-			   :when odd?)
-		 run-graph)
-	outs (terminal-queues root)]
-    (Thread/sleep 200)
-    (kill-graph root)
-    (is (= (-> outs :even seq sort) [2 4]))
-    (is (= (-> outs :odd seq sort) [1 3 5]))
-    (is (= (-> outs :all seq sort) (range 1 6)))
-    (is (= (-> outs :plus-1 seq sort) (map inc [1 3 5])))))
+(deftest pool-test
+  (let [incq (q/local-queue)
+	idq (q/local-queue)
+	root (-> (graph)
+		 (each (out identity idq) :when even?)
+		 (each (out inc incq) :when odd?))
+	[in running] (run-pool root 10 (range 21))]
+    (is (= (range 2 21 2) (sort (wait-for-complete-results incq 5))))
+    (is (= (range 0 21 2) (sort (wait-for-complete-results idq 5))))
+    (kill-graph running)))
 
-(deftest transform-test
-  (let [root (-> (new-graph :input-data [[:a :b :c] [:d :e :f]])
-		 (add-edge-> (node (fn [x] (str "a" x))
-				   :threads 1)				   
-			     :convert-task (fn [x]		       
-					   (identity x)))
-		 (add-edge (terminal-node :id :out))
-		 run-graph)]
-    (Thread/sleep 1000)
-    (is (= (-> root terminal-queues :out seq sort)
-	   ["a:a" "a:b" "a:c" "a:d" "a:e" "a:f"]))))
-
-(deftest simple-sideffect-test
-  (let [a (atom nil)
-	root (-> (new-graph :input-data [1 2 3 4 5])		 
-		 (add-edge-> (fn [x] (swap! a conj x)))
-		 run-graph)]
-    (Thread/sleep 2000)
-    (is (= (sort @a) [1 2 3 4 5]))))
-
-(deftest meter-test
-  (let [root (-> (new-graph :input-data (range 1000))
-		 (add-edge-> (node inc :id :inc))
-		 (add-edge-> (node (partial + 2) :id :+2))
-		 (add-edge (terminal-node :id :done))
-		 run-graph)
-	out (-> root terminal-queues :done)]
-    (wait-until #(= (count out) 1000) 20)
-    (println (meter-graph root))
-    (is (every?
-	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
-	   (and (= num-out-tasks 1000)
-		(= num-in-tasks 1000)))
-	 (meter-graph root)))
-    (reset-meter root)
-    (is (every?
-	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
-	   (and (zero? num-out-tasks)
-		(zero? num-in-tasks)))
-	 (meter-graph root)))))
+(deftest higher-order-observation
+  (let [incq (q/local-queue)
+	[a l] (atom-logger)
+      root (-> (graph)
+	       (each (out inc incq)))]
+      (run-sync root [1 2 "fuck" 3] (partial with-ex l))
+      (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
+      (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))
