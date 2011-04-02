@@ -133,7 +133,8 @@
 				        (.countDown latch))))]]	       
 	 (.submit pool ^java.lang.Runnable work))
        (.await latch)
-       (shutdown-now pool))))
+       (when (not= num-threads-or-pool pool)
+	 (shutdown-now pool)))))
   ([f tasks] (do-work f (available-processors) tasks)))
 
 (defn reduce-work
