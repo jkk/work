@@ -5,12 +5,13 @@
    [work.core :as work]
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as workq])
-  (:use    [plumbing.core ]))
+  (:use    [plumbing.error :only [-?>]])
+  (:use    [plumbing.serialize :only [gen-id]]))
 
 (defn node
   [f  &
    {:keys [id]
-    :or {id (gensym)}
+    :or {id (gen-id f)}
     :as opts}]
   (-> {:f f}
       (merge opts)
@@ -67,8 +68,10 @@
     (doseq [x v]
       (f x))))
 
-(defn graph-comp [{:keys [f children multimap when]} & [observer]]
-  (let [obsf (if observer (observer f) f)]
+(defn graph-comp [{:keys [f children multimap when]
+		   :as vertex}
+		  & [observer]]
+  (let [obsf (if observer (observer vertex) f)]
     (if (not children)
       (pred-f obsf when)
       (pred-f (fn [& args]

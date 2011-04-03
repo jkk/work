@@ -4,7 +4,7 @@
   :dependencies [[org.clojure/clojure "1.2.0"]
                  [org.clojure/clojure-contrib "1.2.0"]
                  [clj-serializer "0.1.1"]
-                 [clj-sys/plumbing "0.1.3-SNAPSHOT"]
+                 [clj-sys/plumbing "0.1.4-SNAPSHOT"]
                  [clj-time "0.2.0-SNAPSHOT"]
                  [store "0.2.2-SNAPSHOT"]
                  [woven/clj-json "0.3.2"]]

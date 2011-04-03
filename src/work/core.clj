@@ -5,7 +5,8 @@
   (:use work.queue
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
-        [plumbing.core :only [print-all with-ex with-log with-accumulator]])
+        [plumbing.core :only [with-accumulator]]
+        [plumbing.error :only [with-ex logger]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue)
@@ -20,7 +21,10 @@
   ([f rate]
      (let [pool (Executors/newSingleThreadScheduledExecutor)]
        (.scheduleAtFixedRate
-        pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
+        pool (partial with-ex (logger) f)
+	(long 0)
+	(long rate)
+	TimeUnit/SECONDS)
        pool))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
