@@ -114,9 +114,9 @@
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))
-	running (run-pool root 10 (q/local-queue (range 21)))]
-    (is (= (range 2 21 2) (sort (wait-for-complete-results incq 5))))
-    (is (= (range 0 21 2) (sort (wait-for-complete-results idq 5))))
+	running (run-pool root 10 (q/local-queue (range 5)))]
+    (is (= (range 2 5 2) (sort (wait-for-complete-results incq 2))))
+    (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
     (kill-graph running)))
 
 (deftest higher-order-observation

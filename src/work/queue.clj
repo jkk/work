@@ -47,7 +47,7 @@
   ([]
      (LinkedBlockingQueue.))
   ([xs]
-     (LinkedBlockingQueue.)))
+     (LinkedBlockingQueue. xs)))
 
 (defn offer-all [q vs]
   (doseq [v vs]

@@ -74,11 +74,11 @@
   (let [obsf (if observer (observer vertex) f)]
     (if (not children)
       (pred-f obsf when)
-      (pred-f (fn [& args]
-		 (let [fx (apply obsf args)]
-		   (doseq [child children
-			   :let [childf (graph-comp child observer)]]
-		     (multi-f childf multimap fx))))
+      (pred-f (let [childfs (doall (map #(graph-comp % observer) children))]
+		(fn [& args]
+		  (let [fx (apply obsf args)]
+		    (doseq [childf childfs]
+		      (multi-f childf multimap fx)))))
 	       when))))
 
 (defn out [f q]
