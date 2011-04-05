@@ -111,15 +111,14 @@
 	(zip/root loc)
 	(recur (-> loc update zip/next))))))
 
-(defn run-pool [graph-loc threads data & [obs]]
-  (let [in (workq/local-queue data)
-	f (graph-comp (zip/root graph-loc) obs)
+(defn run-pool [graph-loc threads in & [obs]]
+  (let [f (graph-comp (zip/root graph-loc) obs)	
 	rewritten-graph (-> (graph)
 			    (each f
 				  :in #(workq/poll in)
 				  :out (fn [& args])
 				  :threads threads))]
-    [in (run-graph rewritten-graph)]))
+    (run-graph rewritten-graph)))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]
