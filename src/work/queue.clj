@@ -1,7 +1,9 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
   (:use plumbing.core plumbing.serialize)
-  (:import (java.util.concurrent LinkedBlockingQueue)))                   
+  (:import (java.util.concurrent LinkedBlockingQueue
+                                 PriorityBlockingQueue)))
+
 (defprotocol Queue
   (poll [q] "poll")
   (alive? [this] "is the queue alive?")
@@ -12,11 +14,41 @@
   LinkedBlockingQueue
   (poll [this] (.poll this))
   (offer [this x]
-	 (if-let [r (.offer this x)]
-	   r
-	   (throw (Exception. "Queue offer failed"))))
+         (if-let [r (.offer this x)]
+           r
+           (throw (Exception. "Queue offer failed"))))
   (peek [this] (.peek this))
   (alive? [this] (nil? (.peek this))))
+
+(defn local-queue
+  "return LinkedBlockingQueue implementation
+   of Queue protocol."
+  ([]
+     (LinkedBlockingQueue.))
+  ([^java.util.Collection xs]
+     (LinkedBlockingQueue. xs)))
+
+(extend-protocol Queue
+  PriorityBlockingQueue
+  (poll [this] (.poll this))
+  (offer [this x]
+         (if-let [r (.offer this x)]
+           r
+           (throw (Exception. "Queue offer failed"))))
+  (peek [this] (.peek this))
+  (alive? [this] (nil? (.peek this))))
+
+(defn priority-queue
+  ([]
+     (PriorityBlockingQueue.))
+  ([^java.util.Collection xs]
+     (PriorityBlockingQueue. xs))
+  ([init-size ordering]
+     (PriorityBlockingQueue. init-size (comparator ordering))))
+
+(defn by-key [f k]
+  (fn [x y]
+    (f (x k) (y k))))
 
 (defn with-adapter
   [in-adapt out-adapt queue]
@@ -40,14 +72,6 @@
        (partial deserialize serialize-impl)
        queue))
   ([q] (with-serialize (string-serializer) q)))
-
-(defn local-queue
-  "return LinkedBlockingQueue implementation
-   of Queue protocol."
-  ([]
-     (LinkedBlockingQueue.))
-  ([xs]
-     (LinkedBlockingQueue. xs)))
 
 (defn offer-all [q vs]
   (doseq [v vs]
