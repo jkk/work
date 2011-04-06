@@ -5,7 +5,8 @@
   (:use work.queue
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
-        [plumbing.core :only [print-all with-ex with-log with-accumulator]])
+        [plumbing.core :only [with-accumulator]]
+        [plumbing.error :only [with-ex logger]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue)
@@ -20,7 +21,10 @@
   ([f rate]
      (let [pool (Executors/newSingleThreadScheduledExecutor)]
        (.scheduleAtFixedRate
-        pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
+        pool (partial with-ex (logger) f)
+	(long 0)
+	(long rate)
+	TimeUnit/SECONDS)
        pool))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
@@ -118,12 +122,14 @@
     pool))
 
 (defn do-work
-  ([f num-threads tasks]
+  ([f num-threads-or-pool tasks]
      (when-not (empty? tasks)
      (let [tasks (seq tasks)
 	   latch (java.util.concurrent.CountDownLatch.
 		  (int (count tasks)))
-	   pool (Executors/newFixedThreadPool num-threads)]
+	   pool (if (integer? num-threads-or-pool)
+		  (Executors/newFixedThreadPool num-threads-or-pool)
+		  num-threads-or-pool)]
        (doseq [t tasks :let [work (fn []
 				    (try
 				      (f t)
@@ -131,15 +137,16 @@
 				        (.countDown latch))))]]	       
 	 (.submit pool ^java.lang.Runnable work))
        (.await latch)
-       (shutdown-now pool))))
+       (when (not= num-threads-or-pool pool)
+	 (shutdown-now pool)))))
   ([f tasks] (do-work f (available-processors) tasks)))
 
 (defn reduce-work
-  ([f init threads xs]
+  ([f init num-threads-or-pool xs]
      (let [[f-accum res] (with-accumulator f init)]
-       (do-work f-accum threads xs)
+       (do-work f-accum num-threads-or-pool xs)
        @res))
-  ([f threads xs] (reduce-work f nil threads xs))
+  ([f num-threads-or-pool xs] (reduce-work f nil num-threads-or-pool xs))
   ([f xs] (reduce-work f (available-processors) xs)))
 
 

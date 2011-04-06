@@ -3,6 +3,7 @@
 	    [clojure.zip :as zip])
   (:use clojure.test
 	plumbing.core
+	plumbing.error
 	work.graph))
 
 ;; ;;TODO: copied from core-test, need to factor out to somehwere.
@@ -24,7 +25,7 @@
 
 (deftest one-node-observer-test
   (let [a (atom 0)
-	obs (fn [f]
+	obs (fn [{:keys [f]}]
 	      (fn [& args]
 		(swap! a inc)
 		(apply f args)))
@@ -113,9 +114,9 @@
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))
-	[in running] (run-pool root 10 (range 21))]
-    (is (= (range 2 21 2) (sort (wait-for-complete-results incq 5))))
-    (is (= (range 0 21 2) (sort (wait-for-complete-results idq 5))))
+	running (run-pool root 10 (q/local-queue (range 5)))]
+    (is (= (range 2 5 2) (sort (wait-for-complete-results incq 2))))
+    (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
     (kill-graph running)))
 
 (deftest higher-order-observation
@@ -123,6 +124,6 @@
 	[a l] (atom-logger)
       root (-> (graph)
 	       (each (out inc incq)))]
-      (run-sync root [1 2 "fuck" 3] (partial with-ex l))
+    (run-sync root [1 2 "fuck" 3] (fn [f] #(with-ex l f %)))
       (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
       (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))

@@ -5,12 +5,13 @@
    [work.core :as work]
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as workq])
-  (:use    [plumbing.core ]))
+  (:use    [plumbing.error :only [-?>]])
+  (:use    [plumbing.serialize :only [gen-id]]))
 
 (defn node
   [f  &
    {:keys [id]
-    :or {id (gensym)}
+    :or {id (gen-id f)}
     :as opts}]
   (-> {:f f}
       (merge opts)
@@ -67,15 +68,17 @@
     (doseq [x v]
       (f x))))
 
-(defn graph-comp [{:keys [f children multimap when]} & [observer]]
-  (let [obsf (if observer (observer f) f)]
+(defn graph-comp [{:keys [f children multimap when]
+		   :as vertex}
+		  & [observer]]
+  (let [obsf (if observer (observer vertex) f)]
     (if (not children)
       (pred-f obsf when)
-      (pred-f (fn [& args]
-		 (let [fx (apply obsf args)]
-		   (doseq [child children
-			   :let [childf (graph-comp child observer)]]
-		     (multi-f childf multimap fx))))
+      (pred-f (let [childfs (doall (map #(graph-comp % observer) children))]
+		(fn [& args]
+		  (let [fx (apply obsf args)]
+		    (doseq [childf childfs]
+		      (multi-f childf multimap fx)))))
 	       when))))
 
 (defn out [f q]
@@ -108,15 +111,14 @@
 	(zip/root loc)
 	(recur (-> loc update zip/next))))))
 
-(defn run-pool [graph-loc threads data & [obs]]
-  (let [in (workq/local-queue data)
-	f (graph-comp (zip/root graph-loc) obs)
+(defn run-pool [graph-loc threads in & [obs]]
+  (let [f (graph-comp (zip/root graph-loc) obs)	
 	rewritten-graph (-> (graph)
 			    (each f
 				  :in #(workq/poll in)
 				  :out (fn [& args])
 				  :threads threads))]
-    [in (run-graph rewritten-graph)]))
+    (run-graph rewritten-graph)))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]
