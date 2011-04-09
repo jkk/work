@@ -64,25 +64,27 @@
             (println "Pool did not terminate" *err*))))))
 
 (defn- work*
-  [fns threads]
-  (let [pool (Executors/newFixedThreadPool threads)]
+  [fns num-threads-or-pool]
+  (let [pool (if (integer? num-threads-or-pool)	       
+	       (Executors/newFixedThreadPool num-threads-or-pool)
+	       num-threads-or-pool)]
     [pool (.invokeAll pool ^java.util.Collection fns)]))
 
 (defn seq-work
   "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
-  [fns threads]
-  (let [[pool futures] (work* fns threads)
+  [fns num-threads-or-pool]
+  (let [[pool futures] (work* fns num-threads-or-pool)
 	res (map
 	     (fn [^java.util.concurrent.Future f] (.get f))
 	     futures)]
-    (shutdown pool)
+    (when (integer? num-threads-or-pool) (shutdown pool))
     res))
 
 (defn map-work
-  [f num-threads xs]
+  [f num-threads-or-pool xs]
   (seq-work
    (doall (map (fn [x] #(f x)) xs))
-   num-threads))
+   num-threads-or-pool))
 
 (defn filter-work
   [f num-threads xs]
