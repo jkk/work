@@ -3,6 +3,7 @@
   (:require [clj-json [core :as json]]
             [clojure.contrib.logging :as log])
   (:use work.queue
+	[store.api :only [bucket-merge hashmap-bucket, with-merge]]
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]
@@ -151,4 +152,31 @@
   ([f num-threads-or-pool xs] (reduce-work f nil num-threads-or-pool xs))
   ([f xs] (reduce-work f (available-processors) xs)))
 
+(defn keyed-producer-consumer
+  "when you have data associated with a given key coming in. ensure that you accumulate
+   data with a merge-fn and keyed data is worked on and at most  one worker is processing a given
+   keys data at a given time
 
+   returns [put-work, get-work, done-work]. A consumer work gets a [key data] pair from
+   get-work and when done pings wiht (done-work). The producer puts [k data] with put-work.
+   The passed in merge-fn is used to add keyed data."
+  [merge-fn]
+  (let [tokens  (java.util.concurrent.ConcurrentHashMap.)
+	data (java.util.concurrent.ConcurrentHashMap.)
+	bucket (with-merge (hashmap-bucket data) merge-fn)
+	q (java.util.concurrent.ConcurrentLinkedQueue.)
+	put-work (fn [k v]
+		   (bucket-merge bucket k v)
+		   (.add q k))
+	get-work (fn []
+		   (when-let [k (.poll q)]
+		     (let [tok (.putIfAbsent tokens k true)]
+		       ;; no pevious value
+		       (if (nil? tok)
+			 [k (.remove  data k)]
+			 ;; put k back in queue,
+			 ;; try another key			 
+			 (do (.add q k)
+			     (recur))))))
+	done-work (fn [k] (.remove tokens k))]
+    [put-work get-work done-work]))
