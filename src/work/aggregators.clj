@@ -53,7 +53,9 @@
 
 (defn map-reduce
   ([map-fn reduce-fn num-threads-or-pool init xs]
-     (let [res (atom init)
-	   accum-res (fn [t] (swap! res reduce-fn t))]
-       (do-work (comp accum-res map-fn) num-threads-or-pool xs)
-       @res)))
+     (if (zero? num-threads-or-pool)
+       (->> xs (map map-fn) (reduce reduce-fn init))
+       (let [res (atom init)
+	    accum-res (fn [t] (swap! res reduce-fn t))]
+	(do-work (comp accum-res map-fn) num-threads-or-pool xs)
+	@res))))
