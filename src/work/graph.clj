@@ -86,9 +86,11 @@
     (workq/offer q (apply f args))))
 
 (defn run-sync [graph-loc data & [obs]]
-  (let [f (graph-comp (zip/root graph-loc) obs)]
+  (let [f (graph-comp (zip/root graph-loc) obs)
+	mono (if (not obs)
+	       f (obs {:f f :id "whole-graph"}))]
     (doseq [x data]
-      (f x))))
+      (mono x))))
 
 (defn run-vertex
   [{:keys [threads,sleep-time]
@@ -112,9 +114,11 @@
 	(recur (-> loc update zip/next))))))
 
 (defn run-pool [graph-loc threads in & [obs]]
-  (let [f (graph-comp (zip/root graph-loc) obs)	
+  (let [f (graph-comp (zip/root graph-loc) obs)
+	mono (if (not obs)
+	       f (obs {:f f :id "whole-graph"}))
 	rewritten-graph (-> (graph)
-			    (each f
+			    (each mono
 				  :in #(workq/poll in)
 				  :out (fn [& args])
 				  :threads threads))]
