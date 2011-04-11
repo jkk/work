@@ -58,3 +58,29 @@
            (:val (work/poll q))))
     (is (= "small"
            (:val (work/poll q))))))
+
+(deftest priority-process-test
+  (let [done (atom [])
+        data (atom ["a" "c" "d" "e"])
+        [start-proc put-job] (work/priority-process identity
+                                                    (fn []
+                                                      (if-let [ds @data]
+                                                        (do (reset! data nil)
+                                                            (map (fn [x]
+                                                                   {:priority 10
+                                                                    :job x})
+                                                                 ds))
+                                                        nil))
+                                                    (partial swap! done conj))]
+
+    (put-job "bottom" 1)
+    (put-job "top" 20)
+    
+    (future (start-proc))
+
+    (is (= "top" (first @done)))
+
+    (is (= "bottom" (second @done)))
+    
+    (is (= #{"a" "c" "d" "e" "bottom"}
+           (set (rest @done))))))

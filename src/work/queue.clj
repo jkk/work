@@ -1,6 +1,8 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
-  (:use plumbing.core plumbing.serialize)
+  (:use plumbing.core
+        plumbing.serialize
+        [plumbing.error :only [with-ex logger]])
   (:import (java.util.concurrent LinkedBlockingQueue
                                  PriorityBlockingQueue)))
 
@@ -86,3 +88,25 @@
 (defn offer-all-unique [q vs]
   (doseq [v vs]
     (offer-unique q v)))
+
+(defn priority-process [f refill cb]
+  (let [q (priority-queue
+           200
+           (by-key > :priority))
+        q-refill (fn [] (when-let [ms (refill)]
+                          (offer-all q ms)))
+        get-job (partial with-ex (logger)
+                         (fn []
+                           (if-let [m (poll q)]
+                             (:job m)
+                             (do (q-refill)
+                                 (:job (poll q))))))
+        start (fn []
+                (if-let [m (get-job)]
+                  (do (f m)
+                      (cb m)))
+                (recur))
+        put-job (fn [j pri]
+                  (offer q {:job j
+                            :priority pri}))]
+    [start put-job]))
