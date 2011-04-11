@@ -89,24 +89,33 @@
   (doseq [v vs]
     (offer-unique q v)))
 
+
+
+(defn put-job [q pri j]
+  (offer q {:job j
+            :priority pri}))
+
+(defn get-job [refill q]
+  (if-let [m (poll q)]
+    (:job m)
+    (do
+      (doseq [[pri j] (refill)]
+        (put-job q pri j))
+      (:job (poll q)))))
+
+(defn process-job [get-job f cb]
+  (if-let [m (get-job)]
+    (do (f m)
+        (cb m))))
+
 (defn priority-process [f refill cb]
+  "takes a work fn, f, a refill fn that returns a seq of
+   [priority input] and a callback, cb."
   (let [q (priority-queue
            200
            (by-key > :priority))
-        q-refill (fn [] (when-let [ms (refill)]
-                          (offer-all q ms)))
-        get-job (partial with-ex (logger)
-                         (fn []
-                           (if-let [m (poll q)]
-                             (:job m)
-                             (do (q-refill)
-                                 (:job (poll q))))))
         start (fn []
-                (if-let [m (get-job)]
-                  (do (f m)
-                      (cb m)))
-                (recur))
-        put-job (fn [j pri]
-                  (offer q {:job j
-                            :priority pri}))]
-    [start put-job]))
+                (process-job
+                 #(get-job refill q) f cb)
+                (recur))]
+    [start (partial put-job q)]))
