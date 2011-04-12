@@ -74,12 +74,14 @@
 (defn seq-work
   "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
   [fns num-threads-or-pool]
-  (let [[pool futures] (work* fns num-threads-or-pool)
-	res (map
-	     (fn [^java.util.concurrent.Future f] (.get f))
-	     futures)]
-    (when (integer? num-threads-or-pool) (shutdown pool))
-    res))
+  (let [[pool futures] (work* fns num-threads-or-pool)]
+    (try
+      (map
+       (fn [^java.util.concurrent.Future f] (.get f))
+       futures)
+      (finally 
+       (when (integer? num-threads-or-pool)
+	 (two-phase-shutdown pool))))))
 
 (defn map-work
   [f num-threads-or-pool xs]
@@ -117,31 +119,33 @@
   [work & [threads]]
   (let [threads (or threads (available-processors))
         pool (Executors/newFixedThreadPool threads)
-        ^java.lang.Runnable f
-	  (fn [] (when-not (.isShutdown pool)
-		   (work)
-		   (recur)))]
-    (dotimes [_ threads] (.submit pool f))     
+        f #(when-not (.isShutdown pool)
+	     (work)
+	     (recur))]
+    (dotimes [_ threads]
+      (.submit pool (cast Runnable f)))     
     pool))
 
 (defn do-work
   ([f num-threads-or-pool tasks]
      (when-not (empty? tasks)
-     (let [tasks (seq tasks)
-	   latch (java.util.concurrent.CountDownLatch.
-		  (int (count tasks)))
-	   pool (if (integer? num-threads-or-pool)
-		  (Executors/newFixedThreadPool num-threads-or-pool)
-		  num-threads-or-pool)]
-       (doseq [t tasks :let [work (fn []
-				    (try
-				      (f t)
-				      (finally
-				        (.countDown latch))))]]	       
-	 (.submit pool ^java.lang.Runnable work))
-       (.await latch)
-       (when (integer? pool)
-	 (shutdown-now pool)))))
+       (let [pool (if (integer? num-threads-or-pool)
+		    (Executors/newFixedThreadPool num-threads-or-pool)
+		    num-threads-or-pool)]
+	 (try 
+	   (let [tasks (seq tasks)
+		 latch (java.util.concurrent.CountDownLatch.
+			(int (count tasks)))
+		 work (fn [t]
+			#(try (f t)		       
+			   (finally
+			       (.countDown latch))))]
+	     (doseq [t tasks]	       
+	       (.submit pool (cast Runnable (work t))))
+	     (.await latch))
+	   (finally
+	    (when (integer? num-threads-or-pool)
+	      (two-phase-shutdown pool)))))))
   ([f tasks] (do-work f (available-processors) tasks)))
 
 (defn reduce-work
