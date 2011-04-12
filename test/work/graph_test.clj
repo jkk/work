@@ -34,7 +34,8 @@
 		 (each (out inc incq)))]
     (run-sync root (range 5) obs)
     (is (= (range 1 6) (wait-for-complete-results incq 5)))
-    (is (= 10 @a)))) ;;observes the root identity node and child.
+    ;;observes the root identity node, child, and whole graph
+    (is (= 15 @a)))) 
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
