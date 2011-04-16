@@ -1,17 +1,12 @@
 (ns work.core-test
   (:use clojure.test
-	work.graph
+	#_work.graph
 	[plumbing.core :only [retry wait-until]]
 	[plumbing.serialize :only [send-clj clj-worker
 				   send-json json-worker]])
   (:require [work.core :as work])
-  (:require [work.queue :as q]))
-
-(deftest map-work-test
-  (is (= (range 10 1010 10)
-         (work/map-work #(* 10 %)
-                        10
-                        (range 1 101 1)))))
+  (:require [work.queue :as q])
+  (:import [java.util.concurrent Executors]))
 
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
@@ -21,111 +16,35 @@
 
 (deftest do-work-test
   (let [input-data (range 1 101 1)
-        response-q (q/local-queue)
-        pool (work/do-work #(q/offer response-q (* 10 %))
-                           10
-                           input-data)]
+        response-q (q/local-queue)]
+    (work/do-work #(q/offer response-q (* 10 %))
+		  10
+		  input-data)
     (is (= (range 10 1010 10)
            (wait-for-complete-results response-q (count input-data))))))
 
-(deftest reduce-work-test
-  (is (= (range 10)
-         (sort (work/reduce-work conj (range 10)))))
-  (is (= nil
-         (work/reduce-work + (list)))))
 
-(deftest queue-work-test
-  (let [input-data (range 1 101 1)
-	input (q/local-queue input-data)
-	output (q/local-queue)
-	pool (future (work/queue-work
-		      (work/work (fn [] {:f #(* 10 %)
-		       :in #(q/poll input)
-		       :out #(q/offer output %)}))))]
-    (is (= (range 10 1010 10)
-	   (wait-for-complete-results output (count input-data))))))
+(deftest map-work-test
+  (is (= (range 10 1010 10)
+	 (sort (work/map-work
+		#(* 10 %)
+		10
+		(range 1 101 1))))))
 
-(deftest blocking-queue-work-test
-  (let [input-data (range 1 21 1)
-	request-q (q/local-queue input-data)
-	response-q (q/local-queue)
-	pool (future
-	      (work/queue-work
-	       (work/work (fn []
-			    {:f #(do (Thread/sleep 1000) (* 10 %))
-			     :in #(q/poll request-q)
-			     :out #(q/offer response-q %)}))
-	       10))]
-    (is (= (range 10 210 10)
-	   (wait-for-complete-results response-q (count input-data))))))
+(deftest map-reduce-test
+  (is (=
+       {:a 13 :b 4 :c 4 :d 3}
+       (into {}
+	     (work/map-reduce
+	      frequencies
+	      (fnil + 0 0)
+	      5
+	      [[:a :a :b :b]
+	       [:c :c :a :a :a]
+	       [:d :d :d :a :a]
+	       [:c :c :a :a :a]
+	       [:b :b :a :a :a]])))))
 
-(deftest async-queue-work-test
-  (let [input-data (range 1 101 1)
-        request-q (q/local-queue input-data)
-        response-q (q/local-queue)
-        pool (future
-              (work/queue-work
-	       (work/work (fn []
-               {:f (fn [task put-done]
-                     (put-done (* 10 task)))
-                :in #(q/poll request-q)
-                :out #(q/offer response-q %)
-                :exec work/async}))
-	       10))]
-    (is (= (range 10 1010 10)
-           (wait-for-complete-results response-q (count input-data))))))
-
-(deftest async-blocking-queue-work-test
-  (let [input-data (range 1 21 1)
-        request-q (q/local-queue input-data)
-        response-q (q/local-queue)
-        pool (future
-              (work/queue-work
-	       (work/work (fn []
-			    {:f (fn [task put-done]
-				  (Thread/sleep 1000)
-				  (put-done (* 10 task)))
-			     :in #(q/poll request-q)
-			     :out #(q/offer response-q %)
-			     :exec work/async}))
-	       10))]
-    (is (= (range 10 210 10)
-           (wait-for-complete-results response-q (count input-data))))))
-
-(defn times10 [x] (* 10 x))
-
-(deftest clj-fns-over-the-queue
-  (let [input-data (range 1 101 1)
-	request-q (q/local-queue (map #(send-clj %1 %2)
-					 (repeat #'times10)
-					 input-data))
-	response-q (q/local-queue)
-	pool (future
-	      (work/queue-work
-	       (work/work (fn []
-	       {:f clj-worker
-	       :in #(q/poll request-q)
-	       :out #(q/offer response-q %) }))
-	       10))]
-    (is (= (range 10 1010 10)
-	   (wait-for-complete-results response-q (count input-data))))))
-
-(deftest json-fns-over-the-queue
-  (let [input-data (range 1 101 1)
-	request-q (q/local-queue (map #(send-json %1 %2)
-				      (repeat #'times10)
-				      input-data))
-	response-q (q/local-queue)
-	pool (future
-	      (work/queue-work
-	       (work/work
-		(fn []
-		  {:f json-worker
-		   :in #(q/poll request-q)
-		   :out #(q/offer response-q %) }))
-	       10))]
-    (is (= (range 10 1010 10)
-	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest keyed-producer-consumer-test
   (let [[put-work get-work done-work]

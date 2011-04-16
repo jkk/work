@@ -6,6 +6,7 @@
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as workq])
   (:use    [plumbing.error :only [-?>]])
+  (:import [java.util.concurrent Executors])
   (:use    [plumbing.serialize :only [gen-id]]))
 
 (defn node
@@ -93,15 +94,13 @@
       (mono x))))
 
 (defn run-vertex
-  [{:keys [threads,sleep-time]
-    :or {threads (work/available-processors)
-	 sleep-time 10}
+  [{:keys [threads]
+    :or {threads (work/available-processors)}
     :as vertex}]
   (assoc vertex
-    :pool (future (work/queue-work
-		   (work/work (fn [] vertex)
-			      (work/sleeper sleep-time))
-		   threads))))
+    :pool (let [pool (Executors/newFixedThreadPool (int threads))]
+	    (work/submit-to pool (constantly vertex))
+	    pool)))
 
 (defn run-graph
   [graph-loc]

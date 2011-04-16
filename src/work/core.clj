@@ -1,17 +1,18 @@
 (ns work.core
   (:refer-clojure :exclude [peek sync])
   (:require [clj-json [core :as json]]
+	    [work.queue :as workq]
             [clojure.contrib.logging :as log])
   (:use work.queue
-	[store.api :only [bucket-merge hashmap-bucket, with-merge]]
+	[store.api :only [bucket-seq bucket-merge-to! bucket-merge hashmap-bucket, with-merge]]
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]
         [plumbing.error :only [with-ex logger]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
-            LinkedBlockingQueue)
-           clojure.lang.RT))
+	    CountDownLatch
+            LinkedBlockingQueue)))
 
 (defn available-processors []
   (.availableProcessors (Runtime/getRuntime)))
@@ -19,19 +20,13 @@
 (defn schedule-work
   "schedules work. cron for clojure fns. Schedule a single fn with a pool to run every n seconds,
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
-  ([f rate]
-     (let [pool (Executors/newSingleThreadScheduledExecutor)]
-       (.scheduleAtFixedRate
-        pool (partial with-ex (logger) f)
-	(long 0)
-	(long rate)
-	TimeUnit/SECONDS)
-       pool))
-  ([jobs]
-     (let [pool (Executors/newSingleThreadScheduledExecutor)] 
-       (doall (for [[f rate] jobs]
-                (schedule-work pool f rate)))
-       pool)))
+  [f rate]
+  (doto (Executors/newSingleThreadScheduledExecutor)
+    (.scheduleAtFixedRate 
+         (partial with-ex (logger) f)
+	 (long 0)
+	 (long rate)
+	 TimeUnit/SECONDS)))
 
 (defn shutdown
   "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
@@ -64,97 +59,110 @@
           (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
             (println "Pool did not terminate" *err*))))))
 
-(defn- work*
-  [fns num-threads-or-pool]
-  (let [pool (if (integer? num-threads-or-pool)	       
-	       (Executors/newFixedThreadPool num-threads-or-pool)
-	       num-threads-or-pool)]
-    [pool (.invokeAll pool ^java.util.Collection fns)]))
+(defn async [f task out]
+  (f task out))
 
-(defn seq-work
-  "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
-  [fns num-threads-or-pool]
-  (let [[pool futures] (work* fns num-threads-or-pool)]
-    (try
-      (map
-       (fn [^java.util.concurrent.Future f] (.get f))
-       futures)
-      (finally 
-       (when (integer? num-threads-or-pool)
-	 (two-phase-shutdown pool))))))
+(defn sync [f task out]
+  (out (f task)))
 
-(defn map-work
-  [f num-threads-or-pool xs]
-  (seq-work
-   (doall (map (fn [x] #(f x)) xs))
-   num-threads-or-pool))
+(defn sleeper-exp-strategy
+  [ready?  &
+   {:keys [start alpha]
+    :or {start 10 alpha 2.0}}]	 
+   (loop [sleep-time start]
+     (if-let [r (ready?)]
+       r
+       (do (Thread/sleep sleep-time)
+	   (recur (* alpha sleep-time))))))
 
-(defn filter-work
-  [f num-threads xs]
-  (filter identity
-	  (map-work
-	   (fn [x] (if (f x) x nil))	       
-	   num-threads
-	   xs)))
+(defn exec-work
+  [schedule-work]
+  (let [work (schedule-work)]
+    (when-not (= work :done)
+      (let [{:keys [f in out exec sleep clean-up]
+	     :or {exec sync
+		  sleep sleeper-exp-strategy
+		  clean-up (constantly nil)	 
+		  out identity}} work]	  
+	(let [task (sleep in)]
+	  (try
+	    (exec f task out)
+	    (finally (clean-up)))))
+      (recur schedule-work))))
 
-;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
-(defn async [f task out] (f task out))
-(defn sync [f task out] (out (f task)))
+(defn submit-to [pool schedule-work]
+  (.submit pool
+	   (cast Runnable
+	         #(exec-work
+		  (fn []
+		    (if (.isShutdown pool)
+		      :done
+		      (schedule-work)))))))
 
-(defn sleeper [& [sleep-time]]
-  (fn [] (Thread/sleep (or sleep-time 5000))))
+(defn do-work [f num-workers tasks]
+  (when-not (empty? tasks)
+    (let [pool (Executors/newFixedThreadPool num-workers)
+	  tasks (seq tasks)
+	  in (workq/local-queue tasks)
+	  latch (CountDownLatch. (count tasks))
+	  worker {:f f
+		  :in #(workq/poll in)
+		  :clean-up
+		  #(.countDown latch)}]
+      (dotimes [_ num-workers]
+	(submit-to pool
+	   (fn []
+	     (if (empty? in)
+	       :done
+	       worker))))
+      (.await latch)
+      (future (two-phase-shutdown pool)))))
 
-(defn work [scheduler & [wait]]
- (fn []
-  (let [yield (or wait (sleeper))
-	{:keys [f in out exec]} (scheduler)
-	exec (or exec sync)]
-    (if-let [task (in)]
-      (exec f task out)
-      (yield)))))
+(defn map-work [f num-workers tasks]
+  (let [pool (Executors/newFixedThreadPool num-workers)
+	latch (CountDownLatch. (count tasks))
+	tasks (seq tasks)
+	out-queue (workq/local-queue)
+	in-queue (workq/local-queue tasks)
+	worker {:f f
+		:in #(workq/poll in-queue)
+		:out (partial workq/offer out-queue)
+		:clean-up (fn []
+			    (.countDown latch))}]
+    (dotimes [_ num-workers]
+      (submit-to pool #(if (empty? in-queue) :done  worker)))
+    (take-while (fn [x] (not (= :eof x)))
+		(repeatedly
+		 (fn []
+		   (if (and (.isEmpty out-queue) (zero? (.getCount latch)))
+		     (do (two-phase-shutdown pool)
+		        :eof)
+		     (sleeper-exp-strategy
+		      #(workq/poll out-queue))))))))
 
-;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
-;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
-(defn queue-work
-  [work & [threads]]
-  (let [threads (or threads (available-processors))
-        pool (Executors/newFixedThreadPool threads)
-        f #(when-not (.isShutdown pool)
-	     (work)
-	     (recur))]
-    (dotimes [_ threads]
-      (.submit pool (cast Runnable f)))     
-    pool))
-
-(defn do-work
-  ([f num-threads-or-pool tasks]
-     (when-not (empty? tasks)
-       (let [pool (if (integer? num-threads-or-pool)
-		    (Executors/newFixedThreadPool num-threads-or-pool)
-		    num-threads-or-pool)]
-	 (try 
-	   (let [tasks (seq tasks)
-		 latch (java.util.concurrent.CountDownLatch.
-			(int (count tasks)))
-		 work (fn [t]
-			#(try (f t)		       
-			   (finally
-			       (.countDown latch))))]
-	     (doseq [t tasks]	       
-	       (.submit pool (cast Runnable (work t))))
-	     (.await latch))
-	   (finally
-	    (when (integer? num-threads-or-pool)
-	      (two-phase-shutdown pool)))))))
-  ([f tasks] (do-work f (available-processors) tasks)))
-
-(defn reduce-work
-  ([f init num-threads-or-pool xs]
-     (let [[f-accum res] (with-accumulator f init)]
-       (do-work f-accum num-threads-or-pool xs)
-       @res))
-  ([f num-threads-or-pool xs] (reduce-work f nil num-threads-or-pool xs))
-  ([f xs] (reduce-work f (available-processors) xs)))
+(defn map-reduce [map-fn reduce-fn num-workers input]
+  (let [pool (Executors/newFixedThreadPool (int num-workers))
+	get-bucket #(with-merge (hashmap-bucket)
+		      (fn [_ accum new] (reduce-fn accum new)))
+	res (get-bucket)
+	in-queue (workq/local-queue input)
+	latch (CountDownLatch. (int  num-workers))]
+    (dotimes [_ num-workers]
+      (submit-to pool
+	 (let [b (get-bucket)]
+	   (fn []
+	     (if (empty? in-queue)
+	       (do (bucket-merge-to! b res)
+		   (.countDown latch)
+		   :done)
+	       {:f map-fn		
+		:in #(workq/poll in-queue)
+		:out (fn [kvs]
+		       (doseq [[k v] kvs]
+			 (bucket-merge b k v)))})))))	       
+    (.await latch)
+    (two-phase-shutdown pool)
+    (bucket-seq res)))
 
 (defn keyed-producer-consumer
   "when you have data associated with a given key coming in. ensure that you accumulate
