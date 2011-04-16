@@ -78,7 +78,7 @@
 (defn exec-work
   [schedule-work]
   (let [work (schedule-work)]
-    (when-not (= work :done)
+    (when (not= work :done)
       (let [{:keys [f in out exec sleep clean-up]
 	     :or {exec sync
 		  sleep sleeper-exp-strategy
@@ -90,11 +90,11 @@
 	    (finally (clean-up)))))
       (recur schedule-work))))
 
-(defn submit-to [pool schedule-work]
+(defn submit-to [^ExecutorService pool schedule-work]
   (.submit pool
 	   (cast Runnable
 	         #(exec-work
-		  (fn []
+		   (fn []
 		    (if (.isShutdown pool)
 		      :done
 		      (schedule-work)))))))
@@ -127,8 +127,7 @@
 	worker {:f f
 		:in #(workq/poll in-queue)
 		:out (partial workq/offer out-queue)
-		:clean-up (fn []
-			    (.countDown latch))}]
+		:clean-up #(.countDown latch)}]
     (dotimes [_ num-workers]
       (submit-to pool #(if (empty? in-queue) :done  worker)))
     (take-while (fn [x] (not (= :eof x)))
@@ -146,22 +145,22 @@
 		      (fn [_ accum new] (reduce-fn accum new)))
 	res (get-bucket)
 	in-queue (workq/local-queue input)
-	latch (CountDownLatch. (int  num-workers))]
+	latch (CountDownLatch. (int  num-workers))
+	defaults {:f map-fn :in #(workq/poll in-queue)}]
     (dotimes [_ num-workers]
       (submit-to pool
 	 (let [b (get-bucket)]
-	   (fn []
-	     (if (empty? in-queue)
-	       (do (bucket-merge-to! b res)
-		   (.countDown latch)
-		   :done)
-	       {:f map-fn		
-		:in #(workq/poll in-queue)
-		:out (fn [kvs]
-		       (doseq [[k v] kvs]
-			 (bucket-merge b k v)))})))))	       
+	   #(if (empty? in-queue)
+	     (do (try
+		   (bucket-merge-to! b res)
+		   (finally (.countDown latch)))
+		 :done)
+	     (assoc defaults :out
+	       (fn [kvs]
+		 (doseq [[k v] kvs]
+		   (bucket-merge b k v))))))))	       
     (.await latch)
-    (two-phase-shutdown pool)
+    (shutdown-now pool)
     (bucket-seq res)))
 
 (defn keyed-producer-consumer
