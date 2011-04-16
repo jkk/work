@@ -81,14 +81,16 @@
     (when (not= work :done)
       (let [{:keys [f in out exec sleep clean-up]
 	     :or {exec sync
-		  sleep sleeper-exp-strategy
+		  sleep #(Thread/sleep 200)
 		  clean-up (constantly nil)	 
-		  out identity}} work]	  
-	(let [task (sleep in)]
+		  out identity}} work
+		  task (in)]
+	(if (nil? task)
+	  (sleep)
 	  (try
 	    (exec f task out)
-	    (finally (clean-up)))))
-      (recur schedule-work))))
+	    (finally (clean-up))))
+	(recur schedule-work)))))
 
 (defn submit-to [^ExecutorService pool schedule-work]
   (.submit pool
