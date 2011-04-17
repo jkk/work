@@ -23,6 +23,22 @@
     (is (= (range 1 6) (wait-for-complete-results incq 5)))
     (is (= (range 5) (wait-for-complete-results idq 5)))))
 
+(deftest mulibranch-test
+  (let [incq (q/local-queue)
+	idq (q/local-queue)
+	root (-> (graph)
+		 (subgraph
+		  (each inc)
+		  >>
+		  (each (out inc incq)))
+		 (subgraph
+		  (each identity)
+		  >>
+		  (each (out dec idq))))]
+    (run-sync root (range 5))
+    (is (= (range 2 7) (wait-for-complete-results incq 5)))
+    (is (= (range -1 4) (wait-for-complete-results idq 5)))))
+
 (deftest one-node-observer-test
   (let [a (atom 0)
 	obs (fn [{:keys [f]}]

@@ -42,6 +42,13 @@
   [parent-loc child]
   (zip/edit parent-loc add-child child))
 
+(defmacro subgraph [parent-loc & subs]
+  `(child
+    ~parent-loc
+    (-> (graph)
+	~@subs
+	zip/root)))
+
 (defn each [parent-loc & args]
   (child parent-loc
 	 (apply node args)))
@@ -89,7 +96,7 @@
 (defn run-sync [graph-loc data & [obs]]
   (let [f (graph-comp (zip/root graph-loc) obs)
 	mono (if (not obs)
-	       f (obs {:f f :id "whole-graph"}))]
+	       f (obs {:f f :id "all"}))]
     (doseq [x data]
       (mono x))))
 
@@ -115,7 +122,7 @@
 (defn run-pool [graph-loc threads in & [obs]]
   (let [f (graph-comp (zip/root graph-loc) obs)
 	mono (if (not obs)
-	       f (obs {:f f :id "whole-graph"}))
+	       f (obs {:f f :id "all"}))
 	rewritten-graph (-> (graph)
 			    (each mono
 				  :in #(workq/poll in)
