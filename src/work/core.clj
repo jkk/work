@@ -79,14 +79,14 @@
   [schedule-work]
   (let [work (schedule-work)]
     (when (not= work :done)
-      (let [{:keys [f in out exec sleep clean-up]
+      (let [{:keys [f in out exec sleep-time clean-up]
 	     :or {exec sync
-		  sleep #(Thread/sleep 200)
+		  sleep-time 200
 		  clean-up (constantly nil)	 
 		  out identity}} work
 		  task (in)]
 	(if (nil? task)
-	  (sleep)
+	  (Thread/sleep sleep-time)
 	  (try
 	    (exec f task out)
 	    (finally (clean-up))))
@@ -163,7 +163,7 @@
 		   (bucket-merge b k v))))))))	       
     (.await latch)
     (shutdown-now pool)
-    (bucket-seq res)))
+    res))
 
 (defn keyed-producer-consumer
   "when you have data associated with a given key coming in. ensure that you accumulate

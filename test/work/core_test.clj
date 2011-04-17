@@ -1,6 +1,7 @@
 (ns work.core-test
   (:use clojure.test
 	#_work.graph
+	store.api
 	[plumbing.core :only [retry wait-until]]
 	[plumbing.serialize :only [send-clj clj-worker
 				   send-json json-worker]])
@@ -23,7 +24,6 @@
     (is (= (range 10 1010 10)
            (wait-for-complete-results response-q (count input-data))))))
 
-
 (deftest map-work-test
   (is (= (range 10 1010 10)
 	 (sort (work/map-work
@@ -35,16 +35,16 @@
   (is (=
        {:a 13 :b 4 :c 4 :d 3}
        (into {}
-	     (work/map-reduce
-	      frequencies
-	      (fnil + 0 0)
-	      5
-	      [[:a :a :b :b]
-	       [:c :c :a :a :a]
-	       [:d :d :d :a :a]
-	       [:c :c :a :a :a]
-	       [:b :b :a :a :a]])))))
-
+	     (bucket-seq
+	      (work/map-reduce
+	       frequencies
+	       (fnil + 0 0)
+	       5
+	       [[:a :a :b :b]
+		[:c :c :a :a :a]
+		[:d :d :d :a :a]
+		[:c :c :a :a :a]
+		[:b :b :a :a :a]]))))))
 
 (deftest keyed-producer-consumer-test
   (let [[put-work get-work done-work]
