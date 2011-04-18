@@ -106,8 +106,7 @@
     :as vertex}]
   (assoc vertex
     :pool (let [pool (Executors/newFixedThreadPool (int threads))]
-	    (dotimes [_ threads]
-	      (work/submit-to pool (constantly vertex)))
+	    (work/submit-to pool (constantly vertex))
 	    pool)))
 
 (defn run-graph
