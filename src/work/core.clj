@@ -72,7 +72,8 @@
    (loop [sleep-time start]
      (if-let [r (ready?)]
        r
-       (do (Thread/sleep sleep-time)
+       (do (when (Thread/interrupted) (throw (InterruptedException.)))
+	   (Thread/sleep sleep-time)
 	   (recur (* alpha sleep-time))))))
 
 (defn exec-work
@@ -134,12 +135,12 @@
       (submit-to pool #(if (empty? in-queue) :done  worker)))
     (take-while (fn [x] (not (= :eof x)))
 		(repeatedly
-		 (fn []
-		   (if (and (.isEmpty out-queue) (zero? (.getCount latch)))
-		     (do (two-phase-shutdown pool)
-		        :eof)
-		     (sleeper-exp-strategy
-		      #(workq/poll out-queue))))))))
+		  #(sleeper-exp-strategy
+		     (fn []
+		       (if (and (.isEmpty out-queue) (zero? (.getCount latch)))
+			 (do (shutdown-now pool)
+			     :eof)			    
+			 (workq/poll out-queue))))))))
 
 (defn map-reduce [map-fn reduce-fn num-workers input]
   (let [pool (Executors/newFixedThreadPool (int num-workers))

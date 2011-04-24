@@ -62,5 +62,5 @@
 
 (deftest trivial-map-work-test
   (is (.get (future (doall (work/map-work #(Thread/sleep %) 200 (range 100))))
-            (long 1) java.util.concurrent.TimeUnit/SECONDS)))
+            (long 300) java.util.concurrent.TimeUnit/SECONDS)))
 
