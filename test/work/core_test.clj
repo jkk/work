@@ -59,3 +59,8 @@
     (is (= [:u2 #{:e}] (get-work)))
     (done-work :u1)
     (is (= [:u1 #{:c :d}] (get-work)))))
+
+(deftest trivial-map-work-test
+  (is (.get (future (doall (work/map-work #(Thread/sleep %) 200 (range 100))))
+            (long 1) java.util.concurrent.TimeUnit/SECONDS)))
+
