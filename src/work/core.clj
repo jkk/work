@@ -90,7 +90,7 @@
 	  (Thread/sleep sleep-time)
 	  (try
 	    (exec f task out)
-	    (finally (clean-up))))
+	    (finally (clean-up task))))
 	(recur schedule-work)))))
 
 (defn submit-to [^ExecutorService pool schedule-work]
@@ -110,8 +110,7 @@
 	  latch (CountDownLatch. (count tasks))
 	  worker {:f f
 		  :in #(workq/poll in)
-		  :clean-up
-		  #(.countDown latch)}]
+		  :clean-up (fn [& _] (.countDown latch))}]		  
       (dotimes [_ num-workers]
 	(submit-to pool
 	   (fn []
@@ -130,7 +129,7 @@
 	worker {:f f
 		:in #(workq/poll in-queue)
 		:out (partial workq/offer out-queue)
-		:clean-up #(.countDown latch)}]
+		:clean-up (fn [& _] (.countDown latch))}]
     (dotimes [_ num-workers]
       (submit-to pool #(if (empty? in-queue) :done  worker)))
     (take-while (fn [x] (not (= :eof x)))
