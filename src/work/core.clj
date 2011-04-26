@@ -102,6 +102,11 @@
 		      :done
 		      (schedule-work)))))))
 
+(defn queue-work [schedule-work num-workers]
+  (let [pool (Executors/newFixedThreadPool (int num-workers))]
+    (dotimes [_ num-workers] (submit-to pool schedule-work))
+    pool))
+
 (defn do-work [f num-workers tasks]
   (when-not (empty? tasks)
     (let [pool (Executors/newFixedThreadPool num-workers)
