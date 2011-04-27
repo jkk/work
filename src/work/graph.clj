@@ -109,10 +109,7 @@
     :or {threads (work/available-processors)}
     :as vertex}]  
   (assoc vertex
-    :pool (let [pool (Executors/newFixedThreadPool (int threads))]
-	    (dotimes [_ threads]
-	      (work/submit-to pool (constantly vertex)))
-	    pool)))
+    :pool (work/queue-work (constantly vertex) threads)))
 
 (defn add-root-in [root]
   (let [in (workq/local-queue)]
