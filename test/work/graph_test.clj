@@ -18,10 +18,10 @@
 	idq (q/local-queue)
 	root (-> (graph)
 		 (each (out inc incq))
-		 (each (out identity idq)))]
+		 (each (out identity idq)))]    
     (run-sync root (range 5))
-    (is (= (range 1 6) (wait-for-complete-results incq 5)))
-    (is (= (range 5) (wait-for-complete-results idq 5)))))
+    (is (= (range 1 6) (seq (sort incq))))
+    (is (= (range 5) (seq (sort idq))))))
 
 (deftest mulibranch-test
   (let [incq (q/local-queue)
@@ -36,22 +36,22 @@
 		  >>
 		  (each (out dec idq))))]
     (run-sync root (range 5))
-    (is (= (range 2 7) (wait-for-complete-results incq 5)))
-    (is (= (range -1 4) (wait-for-complete-results idq 5)))))
+    (is (= (range 2 7) (seq (sort incq))))
+    (is (= (range -1 4) (seq (sort idq))))))
 
 (deftest one-node-observer-test
   (let [a (atom 0)
-	obs (fn [{:keys [f]}]
+	obs (fn [{:keys [f] :as vertex}]
 	      (fn [& args]
 		(swap! a inc)
 		(apply f args)))
 	incq (q/local-queue)
 	root (-> (graph)
 		 (each (out inc incq)))]
-    (run-sync root (range 5) obs)
-    (is (= (range 1 6) (wait-for-complete-results incq 5)))
+    (run-sync root (range 5) (partial observer-rewrite obs))
+    (is (= (range 1 6) (seq (sort incq))))
     ;;observes the root identity node, child, and whole graph
-    (is (= 15 @a)))) 
+    (is (= 10 @a)))) 
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
@@ -60,8 +60,8 @@
 		 >>
 		 (each (out inc multiq)))]
     (run-sync root (range 4))
-    (is (= [1 1 2 1 2 3]
-	     (wait-for-complete-results multiq 5)))))
+    (is (= [1 1 1 2 2 3]
+	     (sort (seq multiq))))))
 
 (deftest multimap-with-pred-test
   (let [multiq (q/local-queue)
@@ -71,7 +71,7 @@
 		 (each (out inc multiq)))]
     (run-sync root (range 4))
     (is (= [1 2]
-	     (wait-for-complete-results multiq 5)))))
+	     (sort (seq multiq))))))
 
 (deftest chain-pipeline-test
   (let [incq (q/local-queue)
@@ -84,7 +84,7 @@
 		 >>
 		 (each (out inc incq)))]
     (run-sync root (range 5))
-    (is (= (range 4 9) (wait-for-complete-results incq 5)))))
+    (is (= (range 4 9) (sort (seq incq))))))
 
 (deftest chain-multicast-pipeline-test
   (let [incq (q/local-queue)
@@ -100,7 +100,8 @@
 		 >>
 		 (each (out inc incq)))]
     (run-sync root (range 5))
-    (is (= [2 2 3 2 3 4 2 3 4 5 2 3 4 5 6] (wait-for-complete-results incq 5)))))
+    (is (= [2 2 3 2 3 4 2 3 4 5 2 3 4 5 6]
+	     (seq incq)))))
 
 (deftest chain-graph-test
   (let [incq (q/local-queue)
@@ -112,8 +113,8 @@
 		 (each (out (partial + 2)
 			     plus2q)))]
     (run-sync root (range 5))
-    (is (= (range 2 7) (wait-for-complete-results incq 5)))
-    (is (= (range 3 8) (wait-for-complete-results plus2q 5)))))
+    (is (= (range 2 7) (seq incq)))
+    (is (= (range 3 8) (seq plus2q)))))
 
 (deftest simple-predicate-test
   (let [incq (q/local-queue)
@@ -122,8 +123,8 @@
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))]
     (run-sync root (range 5))
-    (is (= (range 2 5 2) (wait-for-complete-results incq 5)))
-    (is (= (range 0 5 2) (wait-for-complete-results idq 5)))))
+    (is (= (range 2 5 2) (seq incq)))
+    (is (= (range 0 5 2) (seq idq)))))
 
 (deftest pool-test
   (let [incq (q/local-queue)
@@ -131,7 +132,8 @@
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))
-	running (run-pool root 10 (q/local-queue (range 5)))]
+	[put-work running] (run-pool root comp-rewrite)]
+    (doseq [x (range 5)] (put-work x))
     (is (= (range 2 5 2) (sort (wait-for-complete-results incq 2))))
     (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
     (kill-graph running)))
@@ -141,6 +143,7 @@
 	[a l] (atom-logger)
       root (-> (graph)
 	       (each (out inc incq)))]
-    (run-sync root [1 2 "fuck" 3] (fn [f] #(with-ex l f %)))
+    (run-sync root [1 2 "fuck" 3]
+	      (partial observer-rewrite (fn [f] #(with-ex l f %))))
       (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
       (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))

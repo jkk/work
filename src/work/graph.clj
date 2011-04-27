@@ -1,13 +1,14 @@
 (ns work.graph
+  (:use    [plumbing.error :only [-?>]]
+	   [plumbing.core :only [?>>]]
+	   [plumbing.serialize :only [gen-id]])
   (:require
    [clojure.contrib.logging :as log]
    [clojure.zip :as zip]
    [work.core :as work]
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as workq])
-  (:use    [plumbing.error :only [-?>]])
-  (:import [java.util.concurrent Executors])
-  (:use    [plumbing.serialize :only [gen-id]]))
+  (:import [java.util.concurrent Executors]))
 
 (defn node
   [f  &
@@ -64,72 +65,87 @@
 	:when (and loc (->> loc zip/node))]
     (zip/node loc)))
 
-(defn pred-f [f when]
-  (if (not when) f
-      (fn [& args]
-	(if (apply when args)
-	  (apply f args)))))
+(defn comp-rewrite
+  [{:keys [f children multimap when] :as vertex}]		   
+  {:f (fn [x]
+	(if (or (not when) (when x))
+	  (let [fx (f x)]
+	    (doseq [cx (if multimap fx [fx])
+		    child children
+		    :let [childf (-> child comp-rewrite :f)]]
+	      (childf cx))
+	    fx)))
+   :id "all"})
 
-(defn multi-f [f multimap v]
-  (if (not multimap)
-    (f v)
-    (doseq [x v]
-      (f x))))
-
-(defn graph-comp [{:keys [f children multimap when]
-		   :as vertex}
-		  & [observer]]
-  (let [obsf (if observer (observer vertex) f)]
-    (if (not children)
-      (pred-f obsf when)
-      (pred-f (let [childfs (doall (map #(graph-comp % observer) children))]
-		(fn [& args]
-		  (let [fx (apply obsf args)]
-		    (doseq [childf childfs]
-		      (multi-f childf multimap fx)))))
-	       when))))
+(defn queue-rewrite
+  [{:keys [f children multimap when] :as vertex}]
+  (let [ins (take (count children) (repeatedly #(workq/local-queue)))
+	children (map (fn [child in]
+			(assoc (queue-rewrite child) :in #(workq/poll in)))
+		      children ins)
+	out (fn [input]
+	      (doseq [x (if multimap input [input])
+		      [c in] (zipmap children ins)
+		      :let [cwhen (or (:when c) (constantly true))]
+		      :when (cwhen x)]
+		(workq/offer in x)))]
+    (assoc vertex
+      :out out
+      :children children)))
 
 (defn out [f q]
   (fn [& args]
     (workq/offer q (apply f args))))
 
-(defn run-sync [graph-loc data & [obs]]
-  (let [f (graph-comp (zip/root graph-loc) obs)
-	mono (if (not obs)
-	       f (obs {:f f :id "all"}))]
-    (doseq [x data]
-      (mono x))))
+(defn update-nodes [f root]
+  (let [update (fn [l] (zip/edit l f))]
+    (loop [loc (graph-zip root)]
+	(if (zip/end? loc)
+	  (zip/root loc)
+	  (recur (-> loc update zip/next))))))
 
-(defn run-vertex
+(defn add-pool
   [{:keys [threads]
     :or {threads (work/available-processors)}
-    :as vertex}]
+    :as vertex}]  
   (assoc vertex
     :pool (let [pool (Executors/newFixedThreadPool (int threads))]
 	    (dotimes [_ threads]
 	      (work/submit-to pool (constantly vertex)))
 	    pool)))
 
-(defn run-graph
-  [graph-loc]
-  (let [root (zip/root graph-loc)
-	update (fn [loc]
-		 (zip/edit loc run-vertex))]
-    (loop [loc (graph-zip root)]
-      (if (zip/end? loc)
-	(zip/root loc)
-	(recur (-> loc update zip/next))))))
+(defn add-root-in [root]
+  (let [in (workq/local-queue)]
+    [(partial workq/offer in)
+     (assoc root :in #(workq/poll in))]))
 
-(defn run-pool [graph-loc threads in & [obs]]
-  (let [f (graph-comp (zip/root graph-loc) obs)
-	mono (if (not obs)
-	       f (obs {:f f :id "all"}))
-	rewritten-graph (-> (graph)
-			    (each mono
-				  :in #(workq/poll in)
-				  :out (fn [& args])
-				  :threads threads))]
-    (run-graph rewritten-graph)))
+(defn observer-rewrite [observer root]
+  (update-nodes
+    (fn [v] (assoc v :f (observer v)))
+    root))
+
+(defn graph-rewrite [rewrites root]
+  (reduce
+     (fn [root rewrite] (rewrite root))
+     root
+     rewrites))
+
+(defn run-sync [graph-loc data & rewrites]
+  (let [mono (->>  graph-loc
+		   zip/root
+		   (graph-rewrite rewrites)
+		   comp-rewrite
+		   :f)]
+    (doseq [x data] (mono x))))
+
+(defn run-pool
+  [graph-loc & rewrites]
+  (let [[put-work root] (->> graph-loc
+			     zip/root
+			     (graph-rewrite rewrites)
+			     queue-rewrite
+			     add-root-in)]
+    [put-work (update-nodes add-pool root)]))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]
