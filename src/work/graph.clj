@@ -116,8 +116,9 @@
 
 (defn add-root-in [root]
   (let [in (workq/local-queue)]
-    [(partial workq/offer in)
-     (assoc root :in #(workq/poll in))]))
+    (assoc root
+      :queue in
+      :in #(workq/poll in))))
 
 (defn observer-rewrite [observer root]
   (update-nodes
@@ -140,12 +141,12 @@
 
 (defn run-pool
   [graph-loc & rewrites]
-  (let [[put-work root] (->> graph-loc
-			     zip/root
-			     (graph-rewrite rewrites)
-			     queue-rewrite
-			     add-root-in)]
-    [put-work (update-nodes add-pool root)]))
+  (->> graph-loc
+       zip/root
+       (graph-rewrite rewrites)
+       queue-rewrite
+       add-root-in
+       (update-nodes add-pool)))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)]

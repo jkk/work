@@ -132,8 +132,8 @@
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?))
-	[put-work running] (run-pool root comp-rewrite)]
-    (doseq [x (range 5)] (put-work x))
+	running (run-pool root comp-rewrite)]
+    (q/offer-all (:queue running) (range 5))
     (is (= (range 2 5 2) (sort (wait-for-complete-results incq 2))))
     (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
     (kill-graph running)))
