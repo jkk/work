@@ -44,7 +44,7 @@
     (is (nil? (work/poll q))))
 
   (let [q (work/priority-queue 11
-                               (work/by-key > :priority))]
+                               work/priority)]
     (work/offer-all q [{:priority 2
                         :val "medium"}
                        {:priority 1
@@ -59,86 +59,44 @@
     (is (= "small"
            (:val (work/poll q))))))
 
-(deftest get-job-test
-  (let [q (doto (work/priority-queue 10
-                                     (work/by-key > :priority))
-            (work/offer-all [{:priority 10
-                              :job {:user "alice"}}
-                             {:priority 9
-                              :job {:user "bob"}}
-                             {:priority 8
-                              :job {:user "carol"}}]))
-        refill (fn [] [[3 {:user "dick"}]])]
-    (is (= {:user "alice"}
-           (work/get-job refill q)))
-    (is (= {:user "bob"}
-           (work/get-job refill q)))
-    (is (= {:user "carol"}
-           (work/get-job refill q)))
-    (is (= {:user "dick"}
-           (work/get-job refill q)))
-    (is (= {:user "dick"}
-           (work/get-job refill q)))))
-
 (deftest put-job-test
   (let [q (work/priority-queue 10
-                               (work/by-key > :priority))]
-    (work/put-job q 10 "middle")
-    (work/put-job q 15 "front")
-    (work/put-job q 1 "back")
+                               work/priority)]
+    (work/offer q {:priority 10
+		   :item "middle"})
+    (work/offer q {:priority 15
+		   :item "front"})
+    (work/offer q {:priority 1
+		   :item "back"})
 
     (is (= {:priority 15
-            :job "front"}
+            :item "front"}
            (work/poll q)))
     (is (= {:priority 10
-            :job "middle"}
+            :item "middle"}
            (work/poll q)))
     (is (= {:priority 1
-            :job "back"}
+            :item "back"}
            (work/poll q)))))
 
 (deftest process-job-test
   (let [q (doto (work/priority-queue
-                 10 (work/by-key > :priority))
+                 10 work/priority)
             (work/offer-all [{:priority 10
-                              :job {:user "alice"}}
+                              :item {:user "alice"}}
                              {:priority 10
-                              :job {:user "bob"}}
+                              :item {:user "bob"}}
                              {:priority 10
-                              :job {:user "carol"}}]))
-        get-job #(:job (work/poll q))
+                              :item {:user "carol"}}]))
+        get-job #(:item (work/poll q))
         f-result (atom [])
         cb-result (atom [])
         f #(swap! f-result conj (str "f-" (:user %)))
         cb #(swap! cb-result conj (str "cb-" (:user %)))]
-    (work/process-job get-job f cb)
-    (work/process-job get-job f cb)
-    (work/process-job get-job f cb)
-    (work/process-job get-job f cb)
+    ((juxt f cb) (get-job))
+    ((juxt f cb) (get-job))
+    ((juxt f cb) (get-job))
     (is (= #{"f-alice" "f-bob" "f-carol"}
            (set @f-result)))
     (is (= #{"cb-alice" "cb-bob" "cb-carol"}
            (set @cb-result)))))
-
-(deftest priority-process-test
-  (let [done (atom [])
-        data (atom ["a" "c" "d" "e"])
-        [start-proc put-job] (work/priority-process
-                              identity 
-                              (fn []
-                                (if-let [ds @data]
-                                  (do (reset! data nil)
-                                      (for [x ds] [10 x]))
-                                  nil))
-                              (partial swap! done conj))]
-    
-    (put-job 1 "bottom")
-    (put-job 20 "top")
-    
-    (future (start-proc))
-    (Thread/sleep 500)
-
-    (is (= "top" (first @done)))
-    (is (= "bottom" (second @done)))
-    (is (= #{"a" "c" "d" "e" "bottom"}
-           (set (rest @done))))))

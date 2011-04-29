@@ -1,5 +1,5 @@
 (ns work.graph
-  (:use    [plumbing.error :only [-?>]]
+  (:use    [plumbing.error :only [-?> with-ex logger]]
 	   [plumbing.core :only [?>>]]
 	   [plumbing.serialize :only [gen-id]])
   (:require
@@ -7,7 +7,7 @@
    [clojure.zip :as zip]
    [work.core :as work]
    [clojure.contrib.zip-filter :as zf]
-   [work.queue :as workq])
+   [work.queue :as queue])
   (:import [java.util.concurrent Executors]))
 
 (defn node
@@ -79,23 +79,23 @@
 
 (defn queue-rewrite
   [{:keys [f children multimap when] :as vertex}]
-  (let [ins (take (count children) (repeatedly #(workq/local-queue)))
+  (let [ins (take (count children) (repeatedly #(queue/local-queue)))
 	children (map (fn [child in]
-			(assoc (queue-rewrite child) :in #(workq/poll in)))
+			(assoc (queue-rewrite child) :in #(queue/poll in)))
 		      children ins)
 	out (fn [input]
 	      (doseq [x (if multimap input [input])
 		      [c in] (zipmap children ins)
 		      :let [cwhen (or (:when c) (constantly true))]
 		      :when (cwhen x)]
-		(workq/offer in x)))]
+		(queue/offer in x)))]
     (assoc vertex
       :out out
       :children children)))
 
 (defn out [f q]
   (fn [& args]
-    (workq/offer q (apply f args))))
+    (queue/offer q (apply f args))))
 
 (defn update-nodes [f root]
   (let [update (fn [l] (zip/edit l f))]
@@ -111,11 +111,25 @@
   (assoc vertex
     :pool (work/queue-work (constantly vertex) threads)))
 
-(defn add-root-in [root]
-  (let [in (workq/local-queue)]
+(defn fifo-in [root]
+  (let [in (queue/local-queue)]
     (assoc root
       :queue in
-      :in #(workq/poll in))))
+      :in #(queue/poll in))))
+
+(defn priority-in [root]
+  (let [in (queue/priority-queue
+	    200
+	    queue/priority)]
+    (assoc root
+      :queue in
+      :in #(:item (queue/poll in)))))
+
+(defn schedule-refill [refill freq in]
+  (work/schedule-work
+   #(when (empty? in)
+      (future (with-ex (logger) queue/offer-all in (refill))))
+   freq))
 
 (defn observer-rewrite [observer root]
   (update-nodes
@@ -142,7 +156,7 @@
        zip/root
        (graph-rewrite rewrites)
        queue-rewrite
-       add-root-in
+       fifo-in
        (update-nodes add-pool)))
 
 (defn kill-graph [root]

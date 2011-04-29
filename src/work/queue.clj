@@ -10,11 +10,13 @@
   (poll [q] "poll")
   (alive? [this] "is the queue alive?")
   (peek [q] "see top elem without return")
+  (contains [q x] "does queue contain elem?")
   (offer [q x] "offer"))
 
 (extend-protocol Queue
   LinkedBlockingQueue
   (poll [this] (.poll this))
+  (contains [this x] (.contains this x))
   (offer [this x]
          (if-let [r (.offer this x)]
            r
@@ -33,6 +35,7 @@
 (extend-protocol Queue
   PriorityBlockingQueue
   (poll [this] (.poll this))
+  (contains [this x] (.contains this x))
   (offer [this x]
          (if-let [r (.offer this x)]
            r
@@ -48,9 +51,9 @@
   ([init-size ordering]
      (PriorityBlockingQueue. init-size (comparator ordering))))
 
-(defn by-key [f k]
-  (fn [x y]
-    (f (x k) (y k))))
+(defn priority [x y]
+  (> (:priority x)
+     (:priority y)))
 
 (defn with-adapter
   [in-adapt out-adapt queue]
@@ -58,6 +61,7 @@
          Queue
 	 (poll [q] (out-adapt (poll queue)))
 	 (offer [q x] (offer queue (in-adapt x)))
+	 (contains [q x] (contains queue x))
 	 (peek [q] (out-adapt (peek queue)))
 
 	 clojure.lang.Seqable
@@ -82,40 +86,10 @@
 (defn offer-unique
   "assumes q is a Queue and Seqable"
   [q v]
-  (if (not (find-first (partial = v) q))
-    (offer q v)))
+  (locking q
+	 (if (not (.contains q v))
+	   (offer q v))))
 
 (defn offer-all-unique [q vs]
   (doseq [v vs]
     (offer-unique q v)))
-
-
-
-(defn put-job [q pri j]
-  (offer q {:job j
-            :priority pri}))
-
-(defn get-job [refill q]
-  (if-let [m (poll q)]
-    (:job m)
-    (do
-      (doseq [[pri j] (refill)]
-        (put-job q pri j))
-      (:job (poll q)))))
-
-(defn process-job [get-job f cb]
-  (if-let [m (get-job)]
-    (do (f m)
-        (cb m))))
-
-(defn priority-process [f refill cb]
-  "takes a work fn, f, a refill fn that returns a seq of
-   [priority input] and a callback, cb."
-  (let [q (priority-queue
-           200
-           (by-key > :priority))
-        start (fn []
-                (process-job
-                 #(get-job refill q) f cb)
-                (recur))]
-    [start (partial put-job q)]))
