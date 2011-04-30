@@ -4,7 +4,7 @@
 	    [work.queue :as workq]
             [clojure.contrib.logging :as log])
   (:use work.queue
-	[store.api :only [bucket-seq bucket-merge-to! bucket-merge hashmap-bucket, with-merge]]
+	[store.core :only [bucket-seq bucket-merge-to! bucket-merge hashmap-bucket, with-merge]]
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]

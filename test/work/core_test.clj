@@ -1,7 +1,6 @@
 (ns work.core-test
   (:use clojure.test
-	#_work.graph
-	store.api
+	store.core
 	[plumbing.core :only [retry wait-until]]
 	[plumbing.serialize :only [send-clj clj-worker
 				   send-json json-worker]])
