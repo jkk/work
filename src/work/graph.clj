@@ -117,19 +117,30 @@
       :queue in
       :in #(queue/poll in))))
 
-(defn priority-in [root]
+(defn priority-fn [f]
+  (fn [{:keys [item callback]}]
+    (if (not callback)
+      (f item)
+      (let [result (f item)]
+	(callback item)
+	result))))
+
+(defn priority-in [{:keys [f] :as root}]
   (let [in (queue/priority-queue
 	    200
 	    queue/priority)]
     (assoc root
       :queue in
-      :in #(:item (queue/poll in)))))
+      :offer #(queue/offer-unique in %)
+      :f (priority-fn f)
+      :in #(queue/poll in))))
 
-(defn schedule-refill [refill freq in]
+(defn schedule-refill [refill freq {:keys [queue] :as root}]
   (work/schedule-work
-   #(when (empty? in)
-      (future (with-ex (logger) queue/offer-all in (refill))))
-   freq))
+   #(when (empty? queue)
+      (future (with-ex (logger) queue/offer-all queue (refill))))
+   freq)
+  root)
 
 (defn observer-rewrite [observer root]
   (update-nodes
