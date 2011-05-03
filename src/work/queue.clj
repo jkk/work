@@ -1,28 +1,18 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
-  (:use plumbing.core
-        plumbing.serialize
-        [plumbing.error :only [with-ex logger]])
+  (:use plumbing.core plumbing.serialize)        
   (:import (java.util.concurrent LinkedBlockingQueue
                                  PriorityBlockingQueue)))
 
-(defprotocol Queue
-  (poll [q] "poll")
-  (alive? [this] "is the queue alive?")
-  (peek [q] "see top elem without return")
-  (contains [q x] "does queue contain elem?")
-  (offer [q x] "offer"))
+(defn poll [^java.util.Queue q] (.poll q))
 
-(extend-protocol Queue
-  LinkedBlockingQueue
-  (poll [this] (.poll this))
-  (contains [this x] (.contains this x))
-  (offer [this x]
-         (if-let [r (.offer this x)]
-           r
-           (throw (Exception. "Queue offer failed"))))
-  (peek [this] (.peek this))
-  (alive? [this] (nil? (.peek this))))
+(defn offer [^java.util.Queue q] (.offer q))
+
+(defn peek [^java.util.Queue q] (.peek q))
+
+(defn contains [^java.util.Queue q x] (.contains q x))
+
+(defn offer [^java.util.Queue q x] (.offer q x))
 
 (defn local-queue
   "return LinkedBlockingQueue implementation
@@ -31,17 +21,6 @@
      (LinkedBlockingQueue.))
   ([^java.util.Collection xs]
      (LinkedBlockingQueue. xs)))
-
-(extend-protocol Queue
-  PriorityBlockingQueue
-  (poll [this] (.poll this))
-  (contains [this x] (.contains this x))
-  (offer [this x]
-         (if-let [r (.offer this x)]
-           r
-           (throw (Exception. "Queue offer failed"))))
-  (peek [this] (.peek this))
-  (alive? [this] (nil? (.peek this))))
 
 (defn priority-queue
   ([]
@@ -58,17 +37,17 @@
 (defn with-adapter
   [in-adapt out-adapt queue]
   (reify
-         Queue
-	 (poll [q] (out-adapt (poll queue)))
-	 (offer [q x] (offer queue (in-adapt x)))
-	 (contains [q x] (contains queue x))
-	 (peek [q] (out-adapt (peek queue)))
-
-	 clojure.lang.Seqable
-	 (seq [this] (map out-adapt (seq queue)))
-
-	 clojure.lang.Counted
-	 (count [this] (count queue))))
+      java.util.Queue
+      (poll [q] (out-adapt (poll queue)))
+      (offer [q x] (offer queue (in-adapt x)))
+      (contains [q x] (contains queue x))
+      (peek [q] (out-adapt (peek queue)))
+      
+      clojure.lang.Seqable
+      (seq [this] (map out-adapt (seq queue)))
+      
+      clojure.lang.Counted
+      (count [this] (count queue))))
 
 (defn with-serialize
   "decorates queue with serializing input and output to and from bytes."
