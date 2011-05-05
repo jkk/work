@@ -135,6 +135,11 @@
       :f (priority-fn f)
       :in #(queue/poll in))))
 
+(defn refill [refill {:keys [queue] :as root}]
+  (when (empty? queue)
+     (future (with-ex (logger) queue/offer-all queue (refill))))
+  root)
+
 (defn schedule-refill [refill freq {:keys [queue] :as root}]
   (work/schedule-work
    #(when (empty? queue)
