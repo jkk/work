@@ -1,5 +1,5 @@
 #work
-
+TODO: Describe new work and graph!
 work is a new generalized worker pool core for clojure.
 
 Work has a theme song. [Let's work.](http://www.youtube.com/watch?v=SGHgGCB-rMc&feature=related)
