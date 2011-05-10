@@ -90,6 +90,10 @@
 	  (Thread/sleep sleep-time)
 	  (try
 	    (exec f task out)
+	    (catch Exception e
+	      (log/error
+	        "Top-level work.core exception in exec-work!")
+	      (.printStackTrace e))
 	    (finally (clean-up task))))
 	(recur schedule-work)))))
 
