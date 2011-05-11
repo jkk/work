@@ -143,7 +143,7 @@
 (defn schedule-refill [refill freq {:keys [queue] :as root}]
   (work/schedule-work
    #(when (empty? queue)
-      (future (with-ex (logger) queue/offer-all queue (refill))))
+      (future (with-ex (logger) queue/offer-all queue (remove nil? (refill)))))
    freq)
   root)
 

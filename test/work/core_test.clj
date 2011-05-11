@@ -60,6 +60,20 @@
     (is (= [:u1 #{:c :d}] (get-work)))))
 
 (deftest trivial-map-work-test
-  (is (.get (future (doall (work/map-work #(Thread/sleep %) 200 (range 100))))
+  (is (.get (future (doall (work/map-work (fn [x] (do (Thread/sleep x)
+						     1)) 200 (range 100))))
             (long 300) java.util.concurrent.TimeUnit/SECONDS)))
+
+(deftest worker-exception-test
+  (let [p (Executors/newFixedThreadPool 2)
+	c (atom 0)]
+    (work/submit-to p
+		    (constantly
+		      {:in (constantly 42)
+		       :f (fn [_]
+			    (swap! c inc)
+			    (/ 1 0))}))
+    (Thread/sleep 100)
+    (.shutdownNow p)
+    (is (> @c 1))))
 
