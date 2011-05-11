@@ -143,7 +143,7 @@
 (defn schedule-refill [refill freq {:keys [queue] :as root}]
   (let [pool (work/schedule-work
 	      #(when (empty? queue)
-		 (future (with-ex (logger) queue/offer-all queue (remove nil? (refill)))))
+		 (with-ex (logger) queue/offer-all queue (remove nil? (refill))))
 	      freq)]
     (update-in root [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
