@@ -109,7 +109,7 @@
     :or {threads (work/available-processors)}
     :as vertex}]  
   (let [pool (work/queue-work (constantly vertex) threads)]
-    (update-in vertex [:shutdown] conj (fn [] (.shutdownNow pool)))))
+    (update-in vertex [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
 (defn fifo-in [root]
   (let [in (queue/local-queue)]
@@ -145,7 +145,7 @@
 	      #(when (empty? queue)
 		 (future (with-ex (logger) queue/offer-all queue (remove nil? (refill)))))
 	      freq)]
-    (update-in root [:shutdown] conj (fn [] (.shutdownNow pool)))))
+    (update-in root [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
 (defn observer-rewrite [observer root]
   (update-nodes
