@@ -116,6 +116,23 @@
     (is (= (range 2 7) (seq incq)))
     (is (= (range 3 8) (seq plus2q)))))
 
+
+(deftest queue-uniquess-test
+  (let [s  (atom #{})
+	g (-> (graph)
+	      (each (fn [x]
+		      (when (@s x)
+			(println "ALREADY SAW YOU"))
+		      (swap! s conj x))
+		    :threads 10))
+	root (run-pool g
+		  comp-rewrite
+		  fifo-in)]
+    (q/offer-all (:queue root) (range 1e6))
+    (wait-until #(= (count @s) 1e6) 5)
+    (is (= (count @s) 1e6))
+    (kill-graph root)))
+
 (deftest simple-predicate-test
   (let [incq (q/local-queue)
 	idq (q/local-queue)
