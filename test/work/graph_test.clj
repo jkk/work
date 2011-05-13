@@ -129,7 +129,7 @@
 		  comp-rewrite
 		  fifo-in)]
     (q/offer-all (:queue root) (range 1e6))
-    (wait-until #(= (count @s) 1e6) 5)
+    (wait-until #(= (count @s) 1e6) 10)
     (is (= (count @s) 1e6))
     (kill-graph root)))
 
