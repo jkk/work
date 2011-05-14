@@ -108,8 +108,9 @@
   [{:keys [threads]
     :or {threads (work/available-processors)}
     :as vertex}]  
-  (assoc vertex
-    :pool (work/queue-work (constantly vertex) threads)))
+  (let [pool (work/queue-work
+	      (constantly vertex) threads)]
+    (update-in vertex [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
 (defn fifo-in [root]
   (let [in (queue/local-queue)]
@@ -137,15 +138,12 @@
 
 (defn refill [refill {:keys [queue] :as root}]
   (when (empty? queue)
-     (future (with-ex (logger) queue/offer-all queue (refill))))
+    (with-ex (logger) queue/offer-all queue (remove nil? (refill))))
   root)
 
-(defn schedule-refill [refill freq {:keys [queue] :as root}]
-  (work/schedule-work
-   #(when (empty? queue)
-      (future (with-ex (logger) queue/offer-all queue (remove nil? (refill)))))
-   freq)
-  root)
+(defn schedule-refill [refill-fn freq {:keys [queue] :as root}]
+  (let [pool (work/schedule-work #(refill refill-fn root) freq)]
+    (update-in root [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
 (defn observer-rewrite [observer root]
   (update-nodes
@@ -176,5 +174,6 @@
        (update-nodes add-pool)))
 
 (defn kill-graph [root]
-  (doseq [n (-> root all-vertices)]
-    (-?> n :pool deref work/two-phase-shutdown)))
+  (doseq [n (-> root all-vertices)
+	  f (:shutdown n)]
+    (with-ex (logger) f)))

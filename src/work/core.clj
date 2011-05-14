@@ -5,7 +5,6 @@
             [clojure.contrib.logging :as log])
   (:use work.queue
 	[store.core :only [bucket-seq bucket-merge-to! bucket-merge hashmap-bucket, with-merge]]
-        clj-serializer.core
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]
         [plumbing.error :only [with-ex logger]])
