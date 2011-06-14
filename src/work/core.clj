@@ -173,6 +173,15 @@
     (shutdown-now pool)
     res))
 
+(defn mapchunk-reduce
+  [map-fn reduce-fn num-workers chunk-size input]
+  (->> input
+       (partition-all chunk-size)
+       (map-reduce
+	 (fn [input] (mapcat map-fn input))
+	 reduce-fn
+	 num-workers)))
+
 (defn keyed-producer-consumer
   "when you have data associated with a given key coming in. ensure that you accumulate
    data with a merge-fn and keyed data is worked on and at most  one worker is processing a given

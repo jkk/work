@@ -45,6 +45,23 @@
 		[:c :c :a :a :a]
 		[:b :b :a :a :a]]))))))
 
+
+(deftest mapchunk-reduce-test
+  (is (=
+       {:a 13 :b 4 :c 4 :d 3}
+       (into {}
+	     (bucket-seq
+	      (work/mapchunk-reduce
+	       frequencies
+	       (fnil + 0 0)
+	       5
+	       2
+	       [[:a :a :b :b]
+		[:c :c :a :a :a]
+		[:d :d :d :a :a]
+		[:c :c :a :a :a]
+		[:b :b :a :a :a]]))))))
+
 (deftest keyed-producer-consumer-test
   (let [[put-work get-work done-work]
 	   (work/keyed-producer-consumer
