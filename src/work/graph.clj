@@ -68,7 +68,6 @@
 (defn comp-rewrite
   [{:keys [f children multimap when] :as vertex}]		   
   {:f (fn [x]
-	(swank.core/break)
 	(if (or (not when) (when x))
 	  (let [fx (f x)]
 	    (doseq [cx (if multimap fx [fx])
