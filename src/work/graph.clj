@@ -126,15 +126,17 @@
 	(callback item)
 	result))))
 
-(defn priority-in [{:keys [f] :as root}]
+(defn priority-in [priority {:keys [f] :as root}]
   (let [in (queue/priority-queue
 	    200
 	    queue/priority)]
     (assoc root
       :queue in
-      :offer #(queue/offer-unique in %)
+      :offer #(queue/offer-unique
+	       in
+	       (queue/priority-item priority %))
       :f (priority-fn f)
-      :in #(queue/poll in))))
+      :in #(:item (queue/poll in)))))
 
 (defn refill [refill {:keys [queue] :as root}]
   (when (empty? queue)

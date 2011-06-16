@@ -32,7 +32,6 @@
 (deftest priority-queue-comparator-test
   (let [q (work/priority-queue 11 >)]
     (work/offer-all q [10 300 77 10])
-
     (is (= 300
            (work/poll q)))
     (is (= 77
@@ -62,11 +61,11 @@
 (deftest put-job-test
   (let [q (work/priority-queue 10
                                work/priority)]
-    (work/offer q {:priority 10
+    (work/offer-unique q {:priority 10
 		   :item "middle"})
-    (work/offer q {:priority 15
+    (work/offer-unique q {:priority 15
 		   :item "front"})
-    (work/offer q {:priority 1
+    (work/offer-unique q {:priority 1
 		   :item "back"})
 
     (is (= {:priority 15
@@ -100,3 +99,13 @@
            (set @f-result)))
     (is (= #{"cb-alice" "cb-bob" "cb-carol"}
            (set @cb-result)))))
+
+(deftest priority-items
+  (is (= {:item 1 :priority 10}
+	 (work/priority-item 10 1)))
+  (is (= {:item 1 :priority 10}
+	 (work/priority-item 11 {:item 1 :priority 10})))
+  (is (= {:item 1 :priority 10}
+	 (work/priority-item 10 {:item 1})))
+  (is (= {:item {:foo 1} :priority 10}
+	 (work/priority-item 10 {:foo 1}))))

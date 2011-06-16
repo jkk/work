@@ -168,7 +168,7 @@
 	     (assoc defaults :out
 	       (fn [kvs]
 		 (doseq [[k v] kvs]
-		   (bucket-merge b k v))))))))	       
+		   (bucket-merge b k v))))))))       
     (.await latch)
     (shutdown-now pool)
     res))

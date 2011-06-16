@@ -164,3 +164,12 @@
 	      (partial observer-rewrite (fn [f] #(with-ex l f %))))
       (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
       (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))
+
+(deftest priority-in-test
+  (let [{:keys [in offer queue]} (priority-in 5 {:f identity})]
+    (offer 10)
+    (offer {:item 2 :priority 10})
+    (offer {:item 3 :priority 1})
+    (is (= 2 (in)))
+    (is (= 10 (in)))
+    (is (= 3 (in)))))

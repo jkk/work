@@ -34,6 +34,11 @@
   (> (:priority x)
      (:priority y)))
 
+(defn priority-item [priority item]
+  (if (and (map? item) (:item item))
+    (merge {:priority priority} item)
+    {:item item :priority priority}))
+
 (defn with-adapter
   [in-adapt out-adapt queue]
   (reify
