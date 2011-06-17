@@ -1,8 +1,15 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
-  (:use plumbing.core plumbing.serialize)        
   (:import (java.util.concurrent LinkedBlockingQueue
-                                 PriorityBlockingQueue)))
+                                 PriorityBlockingQueue))
+  (:use [services.core :only [client-wrapper fn-handler start-web]]
+	[store.api :only [store]]
+	[plumbing.core :only [?> ?>> keywordize-map]]
+	[plumbing.cache :only [refreshing-resource]]
+	[plumbing.accumulators :only [draining-fn]]
+	[store.net :only [rest-store-handler]]
+	[compojure.core :only [routes]]
+        [ring.adapter.jetty :only [run-jetty]]))
 
 (defn poll [^java.util.Queue q] (.poll q))
 
@@ -54,15 +61,6 @@
       clojure.lang.Counted
       (count [this] (count queue))))
 
-(defn with-serialize
-  "decorates queue with serializing input and output to and from bytes."
-  ([serialize-impl queue]
-     (with-adapter
-       (partial serialize serialize-impl)
-       (partial deserialize serialize-impl)
-       queue))
-  ([q] (with-serialize (string-serializer) q)))
-
 (defn offer-all [q vs]
   (doseq [v vs]
     (offer q v)))
@@ -77,3 +75,68 @@
 (defn offer-all-unique [q vs]
   (doseq [v vs]
     (offer-unique q v)))
+
+
+(defn listen
+  "if you listen with a listener of the same name (i.e. a service failed and was restarted, we overwrite the old listener."
+  [store
+   {:keys [uri name event listener type]
+    :as spec}]
+  (let [new-spec (->
+		  spec
+		  (?> type dissoc :listener)
+		  (?> (not uri) assoc :uri (str "/" name)))]
+    (when-not (store :bucket event)
+      (store :add event))
+    (store :put event name new-spec)
+    (when (= :rest type)
+      (future
+       (-> (fn-handler
+	    (:uri new-spec)
+	    listener)
+	   vector
+	   (start-web new-spec))))
+    store))
+
+(defn graph-listen [queue-spec
+		    listener-spec
+		    {:keys [offer in priority] :as root}]
+  (let [offer (if (not priority)
+		offer
+		#(offer (priority-item priority %)))]
+    (-> (store [] queue-spec)
+	(listen (assoc listener-spec
+		  :listener  offer))))
+  root)
+
+(defn listener [{:keys [listener]
+		 :as spec}]
+  (if listener
+    listener
+    (apply client-wrapper
+	   (apply concat (assoc spec
+			   :with-body? true)))))
+
+(defn queue-store [s spec]
+  (run-jetty
+   (apply routes (rest-store-handler s))	  
+   (assoc spec :join? false))
+     s)
+
+(defn notifier [store bucket & {:keys [refresh drain]}]
+  (let [listeners #(map (fn [[_ spec]]
+			  (->> spec
+			       keywordize-map
+			      listener
+			      (?>> drain draining-fn drain)))
+			(store :seq bucket))
+	listeners
+	(if refresh
+	  (let [ls (refreshing-resource
+		    listeners
+		    refresh)]
+	    (fn [] @ls))
+	  listeners)]
+    (fn [x]
+      (doseq [listener (listeners)]
+	(listener x)))))

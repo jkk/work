@@ -1,6 +1,11 @@
 (ns work.queue-test
   (:use clojure.test
-        [plumbing.core :only [retry]])
+        [plumbing.core :only [retry]]
+	[store.api :only [store]]
+	work.queue
+	[work.graph :only [priority-in]] 
+	services.core 
+	clojure.test)
   (:require [work.queue :as work]))
 
 (defn- basic-queue-test [q]
@@ -12,9 +17,6 @@
 
 (deftest local-queue-test
   (basic-queue-test (work/local-queue)))
-
-(deftest local-queue-with-serializer-test
-  (basic-queue-test (work/with-serialize (work/local-queue))))
 
 (deftest priority-queue-test
   (let [q (work/priority-queue)]
@@ -62,11 +64,11 @@
   (let [q (work/priority-queue 10
                                work/priority)]
     (work/offer-unique q {:priority 10
-		   :item "middle"})
+			  :item "middle"})
     (work/offer-unique q {:priority 15
-		   :item "front"})
+			  :item "front"})
     (work/offer-unique q {:priority 1
-		   :item "back"})
+			  :item "back"})
 
     (is (= {:priority 15
             :item "front"}
@@ -109,3 +111,43 @@
 	 (work/priority-item 10 {:item 1})))
   (is (= {:item {:foo 1} :priority 10}
 	 (work/priority-item 10 {:foo 1}))))
+
+
+(deftest queue-test
+  (let [writes (atom [])
+	put-w (fn [x] (swap! writes conj x))
+	pending (-> (store ["foo"] {:type :mem})
+		    (listen {:event "foo"
+			     :listener put-w
+			     :name :listener}))
+	notify (notifier pending "foo")]
+    (notify "id")
+    (is (= @writes ["id"]))))
+
+(def server-queue-spec
+     {:host  "localhost"
+      :port 4445})
+
+(def client-queue-spec
+     (assoc server-queue-spec
+       :type :rest))
+
+(def listener-spec
+     {:host  "localhost"
+      :name "writes"
+      :event "foo"
+      :port 4446
+      :type :rest})
+
+(deftest rest-queue-handler-test
+  (let [s (-> (store [] {:type :mem})
+	      (queue-store server-queue-spec))
+	pending (->> (priority-in 10 {})
+		     (merge {:priority 5})
+		     (graph-listen client-queue-spec listener-spec))
+	in (:in pending)
+	notify (notifier s "foo")]
+    (notify "id")
+    (notify "deznutz")
+    (is (= (in) "id"))
+    (is (= (in) "deznutz"))))
