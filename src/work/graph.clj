@@ -43,6 +43,10 @@
   [parent-loc child]
   (zip/edit parent-loc add-child child))
 
+(defn child-graph
+  [parent-loc child]
+  (zip/edit parent-loc add-child (zip/root child)))
+
 (defmacro subgraph [parent-loc & subs]
   `(child
     ~parent-loc
