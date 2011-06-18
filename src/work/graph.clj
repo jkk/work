@@ -47,6 +47,11 @@
   [parent-loc child]
   (zip/edit parent-loc add-child (zip/root child)))
 
+(defn inline-graph
+  [parent-loc child]
+  (child-graph parent-loc child)
+  child)
+
 (defmacro subgraph [parent-loc & subs]
   `(child
     ~parent-loc

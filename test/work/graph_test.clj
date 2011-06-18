@@ -86,7 +86,7 @@
     (run-sync root (range 5))
     (is (= (range 4 9) (sort (seq incq))))))
 
-(defn root-graph [incq]
+(defn root-graph [tail]
   (-> (graph)
       (each inc)
       >>
@@ -94,14 +94,23 @@
       >>
       (each inc)
       >>
-      (each (out inc incq))))
+      (each tail)))
 
-(deftest defsubgraph-test
+(deftest child-graph-test
   (let [incq (q/local-queue)
 	root (-> (graph)
-		 (child-graph (root-graph incq)))]
+		 (child-graph (root-graph (out inc incq))))]
     (run-sync root (range 5))
     (is (= (range 4 9) (sort (seq incq))))))
+
+(deftest inline-graph-test
+  (let [incq (q/local-queue)
+	root (-> (graph)
+		 (inline-graph (root-graph inc))
+		 >>
+		 (each (out inc incq)))]
+    (run-sync root (range 5))
+    (is (= (range 5 10) (sort (seq incq))))))
 
 (deftest chain-multicast-pipeline-test
   (let [incq (q/local-queue)
