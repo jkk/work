@@ -1,7 +1,8 @@
 (ns work.graph
   (:use    [plumbing.error :only [-?> with-ex logger]]
 	   [plumbing.core :only [?>>]]
-	   [plumbing.serialize :only [gen-id]])
+	   [plumbing.serialize :only [gen-id]]
+	   [clojure.zip :only [insert-child]])
   (:require
    [clojure.contrib.logging :as log]
    [clojure.zip :as zip]
@@ -43,14 +44,37 @@
   [parent-loc child]
   (zip/edit parent-loc add-child child))
 
-(defn child-graph
-  [parent-loc child]
-  (zip/edit parent-loc add-child (zip/root child)))
+(defn each [parent-loc & args]
+  (child parent-loc
+	 (apply node args)))
+
+(def >> (comp zip/leftmost zip/down))
+
+(defn update-nodes [f root]
+  (let [update (fn [l] (zip/edit l f))]
+    (loop [loc (graph-zip root)]
+	(if (zip/end? loc)
+	  (zip/root loc)
+	  (recur (-> loc update zip/next))))))
+
+(defn last-node [root]
+  (loop [loc root]
+    (let [right (zip/rightmost loc)
+	  down (zip/down right)]
+      (if (not down)
+	right
+	(recur down)))))
 
 (defn inline-graph
-  [parent-loc child]
-  (child-graph parent-loc child)
-  child)
+  [parent-loc child-graph-loc]
+  (->>
+   child-graph-loc
+   zip/root
+   :children
+   (reduce (fn [parent c]
+	     (child parent c))
+	   parent-loc)
+   last-node))
 
 (defmacro subgraph [parent-loc & subs]
   `(child
@@ -59,15 +83,9 @@
 	~@subs
 	zip/root)))
 
-(defn each [parent-loc & args]
-  (child parent-loc
-	 (apply node args)))
-
 (defn multimap [parent-loc f & args]
   (child parent-loc
 	 (apply node f :multimap true args)))
-
-(def >> (comp zip/leftmost zip/down))
 
 (defn- all-vertices [root]
   (for [loc  (zf/descendants (graph-zip root))
