@@ -57,13 +57,8 @@
 	  (zip/root loc)
 	  (recur (-> loc update zip/next))))))
 
-(defn last-node [root]
-  (loop [loc root]
-    (let [left (zip/leftmost loc)
-	  down (zip/down left)]
-      (if (not down)
-	left
-	(recur down)))))
+(defn last-loc [root]
+  (-> root zf/descendants last))
 
 (defn inline-graph
   [parent-loc child-graph-loc]
@@ -71,10 +66,9 @@
    child-graph-loc
    zip/root
    :children
-   (reduce (fn [parent c]
-	     (child parent c))
+   (reduce child
 	   parent-loc)
-   last-node))
+   last-loc))
 
 (defmacro subgraph [parent-loc & subs]
   `(child
