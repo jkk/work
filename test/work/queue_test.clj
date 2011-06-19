@@ -142,12 +142,12 @@
 (deftest rest-queue-handler-test
   (let [s (-> (store [] {:type :mem})
 	      (queue-store server-queue-spec))
-	pending (->> (priority-in 10 {})
+	pending (->> (priority-in 10 {:f identity})
 		     (merge {:priority 5})
 		     (graph-listen client-queue-spec listener-spec))
 	in (:in pending)
 	notify (notifier s "foo")]
     (notify "id")
     (notify "deznutz")
-    (is (= (in) "id"))
-    (is (= (in) "deznutz"))))
+    (is (= (:item (in)) "id"))
+    (is (= (:item (in)) "deznutz"))))

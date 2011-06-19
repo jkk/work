@@ -1,5 +1,5 @@
 (ns work.graph
-  (:use    [plumbing.error :only [-?> with-ex logger]]
+  (:use    [plumbing.error :only [-?> with-ex logger assert-keys]]
 	   [plumbing.core :only [?>>]]
 	   [plumbing.serialize :only [gen-id]]
 	   [clojure.zip :only [insert-child]])
@@ -108,7 +108,7 @@
 	      (doseq [x (if multimap input [input])
 		      [c in] (zipmap children ins)
 		      :let [cwhen (or (:when c) (constantly true))]
-		      :when (cwhen x)]
+		      :when (and x (cwhen x))]
 		(queue/offer in x)))]
     (assoc vertex
       :out out
@@ -148,6 +148,7 @@
 	result))))
 
 (defn priority-in [priority {:keys [f] :as root}]
+  (assert-keys [:f] root)
   (let [in (queue/priority-queue
 	    200
 	    queue/priority)]
@@ -157,9 +158,10 @@
 	       in
 	       (queue/priority-item priority %))
       :f (priority-fn f)
-      :in #(:item (queue/poll in)))))
+      :in #(queue/poll in))))
 
 (defn refill [refill {:keys [offer queue] :as root}]
+  (assert-keys [:offer :queue] root)
   (when (empty? queue)
     (doseq [x (remove nil? (refill))]
       (with-ex (logger) offer x)))

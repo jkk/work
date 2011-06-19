@@ -154,7 +154,6 @@
 		      (swap! s conj x))
 		    :threads 10))
 	root (run-pool g
-		  comp-rewrite
 		  fifo-in)]
     (q/offer-all (:queue root) (range 1e6))
     (wait-until #(= (count @s) 1e6) 10)
@@ -198,6 +197,6 @@
     (offer 10)
     (offer {:item 2 :priority 10})
     (offer {:item 3 :priority 1})
-    (is (= 2 (in)))
-    (is (= 10 (in)))
-    (is (= 3 (in)))))
+    (is (= 2 (:item (in))))
+    (is (= 10 (:item (in))))
+    (is (= 3 (:item (in))))))
