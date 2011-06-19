@@ -159,12 +159,13 @@
       :f (priority-fn f)
       :in #(:item (queue/poll in)))))
 
-(defn refill [refill {:keys [queue] :as root}]
+(defn refill [refill {:keys [offer queue] :as root}]
   (when (empty? queue)
-    (with-ex (logger) queue/offer-all queue (remove nil? (refill))))
+    (doseq [x (remove nil? (refill))]
+      (with-ex (logger) offer x)))
   root)
 
-(defn schedule-refill [refill-fn freq {:keys [queue] :as root}]
+(defn schedule-refill [refill-fn freq root]
   (let [pool (work/schedule-work #(refill refill-fn root) freq)]
     (update-in root [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
