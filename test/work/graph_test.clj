@@ -193,10 +193,10 @@
       (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))
 
 (deftest priority-in-test
-  (let [{:keys [in offer queue]} (priority-in 5 {:f identity})]
+  (let [{:keys [in offer queue f]} (priority-in 5 {:f identity})]
     (offer 10)
     (offer {:item 2 :priority 10})
     (offer {:item 3 :priority 1})
-    (is (= 2 (:item (in))))
+    (is (= 2 (f (in))))
     (is (= 10 (:item (in))))
-    (is (= 3 (:item (in))))))
+    (is (= 3 (f (in))))))
