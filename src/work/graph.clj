@@ -59,10 +59,10 @@
 
 (defn last-node [root]
   (loop [loc root]
-    (let [right (zip/rightmost loc)
-	  down (zip/down right)]
+    (let [left (zip/leftmost loc)
+	  down (zip/down left)]
       (if (not down)
-	right
+	left
 	(recur down)))))
 
 (defn inline-graph
