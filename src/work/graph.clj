@@ -137,6 +137,8 @@
   (let [in (queue/local-queue)]
     (assoc root
       :queue in
+      :offer #(queue/offer-unique
+	       in %)
       :in #(queue/poll in))))
 
 (defn priority-fn [f]
