@@ -5,6 +5,7 @@
   (:use [services.core :only [client-wrapper fn-handler start-web]]
 	[store.api :only [store]]
 	[plumbing.core :only [?> ?>> keywordize-map]]
+	[plumbing.error :only [with-ex logger]]
 	[plumbing.cache :only [refreshing-resource]]
 	[plumbing.accumulators :only [draining-fn]]
 	[store.net :only [rest-store-handler]]
@@ -91,9 +92,10 @@
     (store :put event name new-spec)
     (when (= :rest type)
       (future
-       (-> (fn-handler
-	    (:uri new-spec)
-	    listener)
+       (-> (with-ex (logger)
+	     fn-handler
+	     (:uri new-spec)
+	     listener)
 	   vector
 	   (start-web new-spec))))
     store))
