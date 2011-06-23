@@ -77,26 +77,42 @@
   (doseq [v vs]
     (offer-unique q v)))
 
+(defn listener-server
+  [{:keys [uri name event listener]
+    :as spec}]
+  (future
+   (-> (fn-handler
+	uri
+	listener)
+       vector
+       (start-web spec))))
+
+(defn add-listener [store
+		    {:keys [name event] :as spec}]
+  (when-not (store :bucket event)
+    (store :add event))
+  (store :put event name spec))
+
+(defn remove-listener
+  [store
+   {:keys [name event]}]
+  (store :delete event name))
 
 (defn listen
   "if you listen with a listener of the same name (i.e. a service failed and was restarted, we overwrite the old listener."
   [store
    {:keys [uri name event listener type]
     :as spec}]
-  (let [new-spec (->
-		  spec
-		  (?> type dissoc :listener)
-		  (?> (not uri) assoc :uri (str "/" name)))]
-    (when-not (store :bucket event)
-      (store :add event))
-    (store :put event name new-spec)
-    (when (= :rest type)
-      (future
-       (-> (fn-handler
-	     (:uri new-spec)
-	     listener)
-	   vector
-	   (start-web new-spec))))
+  (let [server-spec (->
+		     spec
+		     (?> (not uri) assoc :uri (str "/" name)))
+	queue-spec
+	(-> server-spec
+	    (?> type dissoc :listener))]
+    (add-listener store
+		  queue-spec)
+    (when (= type :rest)
+      (listener-server server-spec))
     store))
 
 ;;TODO: hacked.  make consisitant with graph observation.
@@ -143,5 +159,6 @@
 	    (fn [] @ls))
 	  listeners)]
     (fn [x]
+      (println "")
       (doseq [listener (listeners)]
 	(listener x)))))
