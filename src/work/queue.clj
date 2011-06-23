@@ -103,15 +103,16 @@
 (defn graph-listen [queue-spec
 		    {:keys [obs] :as listener-spec} 
 		    {:keys [offer] :as root}]
-  (let [offer {:id :listener
-	       :f offer}
-	{:keys [f]} (if (not obs)
-		      offer
-		      (obs offer))]
+  (let [f (if (not obs)
+	    offer
+	    (obs {:f offer
+		  :id :listener}))]
     (-> (store [] queue-spec)
-	(listen (assoc listener-spec
-		  :listener f))))
-  root)
+	(listen (->
+		 listener-spec
+		 (dissoc :obs)
+		 (assoc :listener f))))
+    (assoc root :offer f)))
 
 (defn listener [{:keys [listener]
 		 :as spec}]
