@@ -101,12 +101,10 @@
 
 ;;TODO: hacked.  make consisitant with graph observation.
 (defn graph-listen [queue-spec
-		    listener-spec
-		    {:keys [offer in priority] :as root} & [obs]]
+		    {:keys [obs] :as listener-spec} 
+		    {:keys [offer] :as root}]
   (let [offer {:id :listener
-	       :f (if (not priority)
-		    offer
-		    #(offer (priority-item priority %)))}
+	       :f offer}
 	{:keys [f]} (if (not obs)
 		      offer
 		      (obs offer))]
