@@ -92,23 +92,27 @@
     (store :put event name new-spec)
     (when (= :rest type)
       (future
-       (-> (with-ex (logger)
-	     fn-handler
+       (-> (fn-handler
 	     (:uri new-spec)
 	     listener)
 	   vector
 	   (start-web new-spec))))
     store))
 
+;;TODO: hacked.  make consisitant with graph observation.
 (defn graph-listen [queue-spec
 		    listener-spec
-		    {:keys [offer in priority] :as root}]
-  (let [offer (if (not priority)
-		offer
-		#(offer (priority-item priority %)))]
+		    {:keys [offer in priority] :as root} & [obs]]
+  (let [offer {:id :listener
+	       :f (if (not priority)
+		    offer
+		    #(offer (priority-item priority %)))}
+	{:keys [f]} (if (not obs)
+		      offer
+		      (obs offer))]
     (-> (store [] queue-spec)
 	(listen (assoc listener-spec
-		  :listener  offer))))
+		  :listener f))))
   root)
 
 (defn listener [{:keys [listener]
