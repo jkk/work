@@ -117,7 +117,7 @@
 
 ;;TODO: hacked.  make consisitant with graph observation.
 (defn graph-listen [queue-spec
-		    {:keys [obs] :as listener-spec} 
+		    {:keys [obs] :as listener-spec}
 		    {:keys [offer] :as root}]
   (let [f (if (not obs)
 	    offer
@@ -144,13 +144,13 @@
    (assoc spec :join? false))
      s)
 
-(defn notifier [store bucket & {:keys [refresh drain]}]
+(defn notifier [{:keys [refresh drain store topic]}]
   (let [listeners #(map (fn [[_ spec]]
 			  (->> spec
 			       keywordize-map
 			      listener
 			      (?>> drain draining-fn drain)))
-			(store :seq bucket))
+			(store :seq topic))
 	listeners
 	(if refresh
 	  (let [ls (refreshing-resource
@@ -159,6 +159,5 @@
 	    (fn [] @ls))
 	  listeners)]
     (fn [x]
-      (println "")
       (doseq [listener (listeners)]
 	(listener x)))))

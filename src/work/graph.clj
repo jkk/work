@@ -2,7 +2,8 @@
   (:use    [plumbing.error :only [-?> with-ex logger assert-keys]]
 	   [plumbing.core :only [?>>]]
 	   [plumbing.serialize :only [gen-id]]
-	   [clojure.zip :only [insert-child]])
+	   [clojure.zip :only [insert-child]]
+	   [store.api :only [store]])
   (:require
    [clojure.contrib.logging :as log]
    [clojure.zip :as zip]
@@ -49,13 +50,6 @@
 	 (apply node args)))
 
 (def >> (comp zip/leftmost zip/down))
-
-(defn update-nodes [f root]
-  (let [update (fn [l] (zip/edit l f))]
-    (loop [loc (graph-zip root)]
-	(if (zip/end? loc)
-	  (zip/root loc)
-	  (recur (-> loc update zip/next))))))
 
 (defn last-loc [root]
   (-> root zf/descendants last))
@@ -125,6 +119,22 @@
 	  (zip/root loc)
 	  (recur (-> loc update zip/next))))))
 
+(defn update-node [id f root]
+  (let [id? (fn [l] (-> l zip/node :id (= id)))
+	update (fn [l] (zip/edit l f))]
+    (loop [loc (graph-zip root)]
+	(cond (zip/end? loc)
+	      (zip/root loc)
+	      (id? loc)
+	      (-> loc update zip/root)
+	  :else (recur (-> loc update zip/next))))))
+
+(defn append-child [id child-node root]
+  (update-node
+   id
+   #(child % (apply node child-node)))
+  root)
+
 (defn add-pool
   [{:keys [threads]
     :or {threads (work/available-processors)}
@@ -183,6 +193,16 @@
      (fn [root rewrite] (rewrite root))
      root
      rewrites))
+
+(defn publish [parent-id {:keys [topic id] :as config} root]
+  (let [n (queue/notifier
+	   {:store
+	    (store [topic] config)
+	    :topic topic})]
+    (append-child
+     parent-id
+     (assoc config :f n)
+     root)))
 
 (defn run-sync [graph-loc data & rewrites]
   (let [mono (->>  graph-loc

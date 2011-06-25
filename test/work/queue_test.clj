@@ -120,7 +120,7 @@
 		    (listen {:event "foo"
 			     :listener put-w
 			     :name :listener}))
-	notify (notifier pending "foo")]
+	notify (notifier {:store pending :topic "foo"})]
     (notify "id")
     (is (= @writes ["id"]))))
 
@@ -151,7 +151,7 @@
 		     (graph-listen client-queue-spec
 				   (assoc listener-spec :obs obs)))
 	in (:in pending)
-	notify (notifier s "foo")]
+	notify (notifier {:store s :topic "foo"})]
     (notify "id")
     (notify "deznutz")
     (is (= (:item (in)) "id"))
