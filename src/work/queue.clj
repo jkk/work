@@ -98,11 +98,13 @@
    (.bucket-map local)
    bucket-seq
    (map (fn [[topic {:keys [read]}]]
+	  (assert read)
+	  (assert topic)
 	  (let [callback
 		(fn [x]
 		  (doseq [[id {:keys [subs] :as ks}]
 			  (bucket-seq read)]
-		    (assert-keys [:subs] ks)
+		    (assert subs)
 		    (subs x)))]
 	    (fn-handler
 	     (str "/" topic)
@@ -113,6 +115,8 @@
   (let [handlers (sub-handlers local)]
     (future
      (start-web handlers spec))
+    (println (format "serving subscribers for topics... %s on spec... %s"
+		     (pr-str (bucket-keys (.bucket-map local))) spec))
     (doseq [t (bucket-keys (.bucket-map local))]
       (sub remote (assoc spec
 		    :topic t
