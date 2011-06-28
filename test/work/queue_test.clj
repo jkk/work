@@ -1,11 +1,11 @@
 (ns work.queue-test
-  (:use clojure.test
-        [plumbing.core :only [retry]]
-	[store.api :only [store]]
-	work.queue
-	[work.graph :only [priority-in]] 
-	services.core 
-	clojure.test)
+  (:use clojure.test [plumbing.core :only [retry]]
+	[store.core :only [bucket-keys]]
+	[store.api :only
+	 [store]] work.queue [ring.adapter.jetty :only [run-jetty]]
+	 [compojure.core :only [routes]]
+	 	[store.net :only [rest-store-handler]]
+	 [work.graph :only [priority-in]] services.core clojure.test)
   (:require [work.queue :as work]))
 
 (defn- basic-queue-test [q]
@@ -113,47 +113,36 @@
 	 (work/priority-item 10 {:foo 1}))))
 
 
-(deftest queue-test
-  (let [writes (atom [])
-	put-w (fn [x] (swap! writes conj x))
-	pending (-> (store ["foo"] {:type :mem})
-		    (listen {:event "foo"
-			     :listener put-w
-			     :name :listener}))
-	notify (notifier {:store pending :topic "foo"})]
-    (notify "id")
-    (is (= @writes ["id"]))))
+(def broker-spec
+     {:remote {:host "localhost"
+	       :port 4445
+	       :type :rest}
+      :local {:host "localhost"
+	      :port 4455
+	      :type :rest
+	      :id "service-id"}})
 
-(def server-queue-spec
-     {:host  "localhost"
-      :port 4445})
+(defn queue-store [s spec]
+  (run-jetty
+   (apply routes (rest-store-handler s))         
+   (assoc spec :join? false))
+     s)
 
-(def client-queue-spec
-     (assoc server-queue-spec
-       :type :rest))
-
-(def listener-spec
-     {:host  "localhost"
-      :name "writes"
-      :event "foo"
-      :port 4446
-      :type :rest})
 
 (deftest rest-queue-handler-test
-  (let [snaps (atom [])
-	obs #(fn [& args]
-	       (swap! snaps conj args)
-	       (apply (:f %) args))
-	s (-> (store [] {:type :mem})
-	      (queue-store server-queue-spec))
+  (let [s (->  (store [] {:type :mem})
+	       (queue-store (:remote broker-spec)))
+	b (broker broker-spec)
 	pending (->> (priority-in 10 {:f identity})
-		     (merge {:priority 5})
-		     (graph-listen client-queue-spec
-				   (assoc listener-spec :obs obs)))
+		     (merge {:priority 5}))
 	in (:in pending)
-	notify (notifier {:store s :topic "foo"})]
+	notify (notifier {:store (:remote b)
+			  :topic "foo"})]
+    (is (empty? (bucket-keys (.bucket-map s))))
+    (subscribe b {:id "bar" :topic "foo"} pending)
+    (serve-subs b)
+    (is (= ["foo"] (bucket-keys (.bucket-map s))))
     (notify "id")
     (notify "deznutz")
     (is (= (:item (in)) "id"))
-    (is (= (:item (in)) "deznutz"))
-    (is (= 2 (count @snaps)))))
+    (is (= (:item (in)) "deznutz"))))

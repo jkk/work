@@ -4,8 +4,9 @@
                                  PriorityBlockingQueue))
   (:use [services.core :only [client-wrapper fn-handler start-web]]
 	[store.api :only [store]]
+	[store.core :only [bucket-keys bucket-seq]]
 	[plumbing.core :only [?> ?>> keywordize-map]]
-	[plumbing.error :only [with-ex logger]]
+	[plumbing.error :only [with-ex logger assert-keys]]
 	[plumbing.cache :only [refreshing-resource]]
 	[plumbing.accumulators :only [draining-fn]]
 	[store.net :only [rest-store-handler]]
@@ -77,58 +78,51 @@
   (doseq [v vs]
     (offer-unique q v)))
 
-(defn listener-server
-  [{:keys [uri name event listener]
-    :as spec}]
-  (future
-   (-> (fn-handler
-	uri
-	listener)
-       vector
-       (start-web spec))))
+(defn broker [{:keys [remote local] :as broker-spec}]
+  (let [remote-broker (store [] remote)
+	local-broker (store [] {:merge (fn [_ old new]
+					 (conj (or old []) new))})]
+    {:remote remote-broker
+     :local local-broker
+     :spec local}))
 
-(defn add-listener [store
-		    {:keys [name event] :as spec}]
-  (when-not (store :bucket event)
-    (store :add event))
-  (store :put event name spec))
-
-(defn remove-listener
+(defn sub
   [store
-   {:keys [name event]}]
-  (store :delete event name))
+   {:keys [id topic] :as spec}]
+  (when-not (store :bucket topic)
+    (store :add topic))
+  (store :put topic id spec))
 
-(defn listen
-  "if you listen with a listener of the same name (i.e. a service failed and was restarted, we overwrite the old listener."
-  [store
-   {:keys [uri name event listener type]
-    :as spec}]
-  (let [server-spec (->
-		     spec
-		     (?> (not uri) assoc :uri (str "/" name)))
-	queue-spec
-	(-> server-spec
-	    (?> type dissoc :listener))]
-    (add-listener store
-		  queue-spec)
-    (when (= type :rest)
-      (listener-server server-spec))
-    store))
+(defn sub-handlers [local]
+  (->>
+   (.bucket-map local)
+   bucket-seq
+   (map (fn [[topic {:keys [read]}]]
+	  (let [callback
+		(fn [x]
+		  (doseq [[id {:keys [subs] :as ks}]
+			  (bucket-seq read)]
+		    (assert-keys [:subs] ks)
+		    (subs x)))]
+	    (fn-handler
+	     (str "/" topic)
+	     callback))))))
 
-;;TODO: hacked.  make consisitant with graph observation.
-(defn graph-listen [queue-spec
-		    {:keys [obs] :as listener-spec}
+(defn serve-subs
+  [{:keys [spec local remote]}]
+  (let [handlers (sub-handlers local)]
+    (future
+     (start-web handlers spec))
+    (doseq [t (bucket-keys (.bucket-map local))]
+      (sub remote (assoc spec
+		    :topic t
+		    :uri (str "/" t))))))
+
+(defn subscribe [{:keys [local]}
+		    spec
 		    {:keys [offer] :as root}]
-  (let [f (if (not obs)
-	    offer
-	    (obs {:f offer
-		  :id :listener}))]
-    (-> (store [] queue-spec)
-	(listen (->
-		 listener-spec
-		 (dissoc :obs)
-		 (assoc :listener f))))
-    (assoc root :offer f)))
+  (sub local (assoc spec :subs offer))
+  root)
 
 (defn listener [{:keys [listener]
 		 :as spec}]
@@ -138,13 +132,7 @@
 	   (apply concat (assoc spec
 			   :with-body? true)))))
 
-(defn queue-store [s spec]
-  (run-jetty
-   (apply routes (rest-store-handler s))	  
-   (assoc spec :join? false))
-     s)
-
-(defn notifier [{:keys [refresh drain store topic]}]
+(defn notifier [{:keys [store topic refresh drain]}]
   (let [listeners #(map (fn [[_ spec]]
 			  (->> spec
 			       keywordize-map
