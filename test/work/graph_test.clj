@@ -63,6 +63,18 @@
     (is (= [1 1 1 2 2 3]
 	     (sort (seq multiq))))))
 
+(deftest append-child-graph-test
+  (let [multiq (q/local-queue)
+	root (-> (graph)
+		 (multimap range
+			   :id :hang-city)
+		 >>
+		 (each (out inc multiq)))]
+    (publish :hang-city {:topic "foo" :id "bar"} root)
+    (run-sync root (range 4))
+    (is (= [1 1 1 2 2 3]
+	     (sort (seq multiq))))))
+
 (deftest multimap-with-pred-test
   (let [multiq (q/local-queue)
 	root (-> (graph)

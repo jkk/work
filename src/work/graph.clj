@@ -132,8 +132,8 @@
 (defn append-child [id child-node root]
   (update-node
    id
-   #(child % (apply node child-node)))
-  root)
+   #(child % (apply node (:f child-node) (flatten child-node)))
+   root))
 
 (defn add-pool
   [{:keys [threads]
