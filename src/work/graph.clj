@@ -194,10 +194,12 @@
      root
      rewrites))
 
-(defn publish [parent-id {:keys [topic id] :as config} root]
+(defn publish [{:keys [remote]} parent-id
+	       {:keys [topic] :as config} root]
+  (assert topic)
   (let [n (queue/notifier
 	   {:store
-	    (store [topic] config)
+	    (store [topic] remote)
 	    :topic topic})]
     (append-child
      parent-id

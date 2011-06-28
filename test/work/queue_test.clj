@@ -1,11 +1,12 @@
 (ns work.queue-test
   (:use clojure.test [plumbing.core :only [retry]]
 	[store.core :only [bucket-keys]]
-	[store.api :only
-	 [store]] work.queue [ring.adapter.jetty :only [run-jetty]]
-	 [compojure.core :only [routes]]
-	 	[store.net :only [rest-store-handler]]
-	 [work.graph :only [priority-in]] services.core clojure.test)
+	[store.api :only [store]]
+	work.queue
+	[ring.adapter.jetty :only [run-jetty]]
+	[compojure.core :only [routes]]
+	[store.net :only [rest-store-handler]]
+	[work.graph :only [priority-in]] services.core clojure.test)
   (:require [work.queue :as work]))
 
 (defn- basic-queue-test [q]
@@ -115,10 +116,10 @@
 
 (def broker-spec
      {:remote {:host "localhost"
-	       :port 4445
+	       :port 4446
 	       :type :rest}
       :local {:host "localhost"
-	      :port 4455
+	      :port 4456
 	      :type :rest
 	      :id "service-id"}})
 
@@ -127,7 +128,6 @@
    (apply routes (rest-store-handler s))         
    (assoc spec :join? false))
      s)
-
 
 (deftest rest-queue-handler-test
   (let [s (->  (store [] {:type :mem})

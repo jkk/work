@@ -4,7 +4,14 @@
   (:use clojure.test
 	plumbing.core
 	plumbing.error
-	work.graph))
+	work.graph
+	work.queue
+	[store.core :only [bucket-keys]]
+	[store.api :only [store]]
+	[ring.adapter.jetty :only [run-jetty]]
+	[compojure.core :only [routes]]
+	[store.net :only [rest-store-handler]]
+	services.core))
 
 ;; ;;TODO: copied from core-test, need to factor out to somehwere.
 (defn wait-for-complete-results
@@ -63,17 +70,52 @@
     (is (= [1 1 1 2 2 3]
 	     (sort (seq multiq))))))
 
-(deftest append-child-graph-test
-  (let [multiq (q/local-queue)
+(def broker-spec
+     {:remote {:host "localhost"
+	       :port 4445
+	       :type :rest}
+      :local {:host "localhost"
+	      :port 4455
+	      :type :rest
+	      :id "service-id"}})
+
+(defn queue-store [s spec]
+  (run-jetty
+   (apply routes (rest-store-handler s))         
+   (assoc spec :join? false))
+     s)
+
+(deftest rest-broker-system-test
+  (let [s (->  (store [] {:type :mem})
+	       (queue-store (:remote broker-spec)))
+	b (broker broker-spec)
+	pending (->> (priority-in 10 {:f identity})
+		     (merge {:priority 5})
+		     (subscribe b {:id "bar" :topic "foo"}))
+	_ (serve-subs b)
+	in (:in pending)
+	multiq (q/local-queue)
 	root (-> (graph)
 		 (multimap range
 			   :id :hang-city)
 		 >>
-		 (each (out inc multiq)))]
-    (publish :hang-city {:topic "foo" :id "bar"} root)
+		 (each (out inc multiq)))
+	root (publish broker-spec :hang-city
+		      {:topic "foo" :id "blaz"} root)]
+
+    (is (=  [["service-id"
+	      {"host" "localhost"
+		"port" 4455
+		"type" "rest"
+		"topic" "foo"
+		"uri" "/foo"
+		"id" "service-id"}]] (s :seq "foo")))
     (run-sync root (range 4))
     (is (= [1 1 1 2 2 3]
-	     (sort (seq multiq))))))
+	     (sort (seq multiq))))
+    (is (= ["foo"] (bucket-keys (.bucket-map s))))
+    (is (= (:item (in)) 0))
+    (is (= (:item  (in)) 2))))
 
 (deftest multimap-with-pred-test
   (let [multiq (q/local-queue)
