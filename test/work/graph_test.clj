@@ -20,6 +20,19 @@
   (wait-until #(= (.size response-q) expected-seq-size) 5)
   (iterator-seq (.iterator response-q)))
 
+(deftest append-child-test
+  (let [g1 (-> (graph)
+	      (each inc :id :foo)
+	      >>
+	      (each inc :id :bar))
+	g2 (append-child
+	    :foo {:id :child :f inc} g1)
+	foo  (->> g2 zip/root
+		  (filter-nodes #(-> % :id (= :foo)))
+		  first)]
+    
+    (is (= [:child :bar] (map :id (:children foo))))))
+
 (deftest one-node-graph-test
   (let [incq (q/local-queue)
 	idq (q/local-queue)

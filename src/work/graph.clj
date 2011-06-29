@@ -119,20 +119,25 @@
 	  (zip/root loc)
 	  (recur (-> loc update zip/next))))))
 
+(defn filter-nodes [pred root]
+  (->> root graph-zip zf/descendants
+       (filter (comp pred zip/node))
+       (map zip/node)))
+
 (defn update-node [id f root]
-  (let [id? (fn [l] (-> l zip/node :id (= id)))
+  (let [id? (fn [l] (= id (:id (zip/node l))))
 	update (fn [l] (zip/edit l f))]
     (loop [loc (graph-zip root)]
-	(cond (zip/end? loc)
-	      (zip/root loc)
-	      (id? loc)
-	      (-> loc update zip/root)
-	  :else (recur (-> loc update zip/next))))))
+      (cond (zip/end? loc)
+	    (zip/root loc)
+	    (id? loc)
+	    (-> loc update zip/root)
+	    :else (recur (-> loc update zip/next))))))
 
 (defn append-child [id child-node root]
   (update-node
    id
-   #(child % (apply node (:f child-node) (flatten child-node)))
+   #(child % (apply node (:f child-node) (flatten (seq child-node))))
    root))
 
 (defn add-pool
