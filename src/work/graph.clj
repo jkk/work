@@ -3,11 +3,13 @@
 	   [plumbing.core :only [?>>]]
 	   [plumbing.serialize :only [gen-id]]
 	   [clojure.zip :only [insert-child]]
-	   [store.api :only [store]])
+	   [store.api :only [store]]
+	   [work.message :only [add-subscriber]])
   (:require
    [clojure.contrib.logging :as log]
    [clojure.zip :as zip]
    [work.core :as work]
+   [work.message :as message]
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as queue])
   (:import [java.util.concurrent Executors]))
@@ -199,10 +201,17 @@
      root
      rewrites))
 
+
+(defn subscribe
+  [{:keys [local]} subscriber  {:keys [offer] :as root}]
+  (assert (nil? (:f subscriber)))
+  (add-subscriber local (assoc subscriber :f offer))
+  root)
+
 (defn publish [{:keys [remote]} parent-id
 	       {:keys [topic] :as config} root]
   (assert topic)
-  (let [n (queue/notifier
+  (let [n (message/publisher
 	   {:store
 	    (store [topic] remote)
 	    :topic topic})]

@@ -112,37 +112,3 @@
 	 (work/priority-item 10 {:item 1})))
   (is (= {:item {:foo 1} :priority 10}
 	 (work/priority-item 10 {:foo 1}))))
-
-
-(def broker-spec
-     {:remote {:host "localhost"
-	       :port 4446
-	       :type :rest}
-      :local {:host "localhost"
-	      :port 4456
-	      :type :rest
-	      :id "service-id"}})
-
-(defn queue-store [s spec]
-  (run-jetty
-   (apply routes (rest-store-handler s))         
-   (assoc spec :join? false))
-     s)
-
-(deftest rest-queue-handler-test
-  (let [s (->  (store [] {:type :mem})
-	       (queue-store (:remote broker-spec)))
-	b (broker broker-spec)
-	pending (->> (priority-in 10 {:f identity})
-		     (merge {:priority 5}))
-	in (:in pending)
-	notify (notifier {:store (:remote b)
-			  :topic "foo"})]
-    (is (empty? (bucket-keys (.bucket-map s))))
-    (subscribe b {:id "bar" :topic "foo"} pending)
-    (serve-subs b)
-    (is (= ["foo"] (bucket-keys (.bucket-map s))))
-    (notify "id")
-    (notify "deznutz")
-    (is (= (:item (in)) "id"))
-    (is (= (:item (in)) "deznutz"))))

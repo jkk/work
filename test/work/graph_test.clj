@@ -1,11 +1,12 @@
 (ns work.graph-test
   (:require [work.queue :as q]
+	    [work.message :as message]
 	    [clojure.zip :as zip])
   (:use clojure.test
 	plumbing.core
 	plumbing.error
 	work.graph
-	work.queue
+	;; work.queue
 	[store.core :only [bucket-keys]]
 	[store.api :only [store]]
 	[ring.adapter.jetty :only [run-jetty]]
@@ -87,7 +88,7 @@
      {:remote {:host "localhost"
 	       :port 4445
 	       :type :rest}
-      :local {:host "localhost"
+      :subscriber {:host "localhost"
 	      :port 4455
 	      :type :rest
 	      :id "service-id"}})
@@ -101,11 +102,11 @@
 (deftest rest-broker-system-test
   (let [s (->  (store [] {:type :mem})
 	       (queue-store (:remote broker-spec)))
-	b (broker broker-spec)
+	b (message/broker broker-spec)
 	pending (->> (priority-in 10 {:f identity})
 		     (merge {:priority 5})
 		     (subscribe b {:id "bar" :topic "foo"}))
-	_ (serve-subs b)
+	_ (message/start-subscribers b)
 	in (:in pending)
 	multiq (q/local-queue)
 	root (-> (graph)
