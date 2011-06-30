@@ -50,7 +50,9 @@
 			     :subscriber f })
 	f (publisher
 	     {:store s
+	      :refresh 10
 	      :topic "topic1"})]
+    (Thread/sleep 500)
     (f "42")
     (is (= ["42" "42"] @a))))
 
@@ -65,7 +67,9 @@
 	       s1     (start-subscribers b)
 	       _ (reset! other-server s1)
 	       publish (publisher {:store (:remote b)
+				   :refresh 10
 				   :topic "foo"})]
+	   (Thread/sleep 500)
 	   (is (= ["foo"] (bucket-keys (.bucket-map s))))
 	   (publish "id")
 	   (publish "deznutz")

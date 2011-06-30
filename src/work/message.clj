@@ -1,11 +1,14 @@
 (ns work.message
-  (:use [plumbing.core :only [apply-each ?>> keywordize-map]]
+  (:use [plumbing.core :only [apply-each ?>> keywordize-map wait-until]]
+	[plumbing.error :only [with-ex with-give-up]]
 	[plumbing.accumulators :only [draining-fn]]
 	[plumbing.cache :only [refreshing-resource]]
         [store.api :only [store]]
 	[store.core :only [bucket-seq bucket-keys]]
 	[services.core :only [fn-handler start-web client-wrapper]]
-	[plumbing.error :only [assert-keys]]))
+	[plumbing.error :only [assert-keys]]
+	[work.core :only [schedule-work]])
+  (:require [clojure.contrib.logging :as log]))
 
 (defn message-merge [_ old new]
   (conj (or old []) new))
@@ -69,19 +72,38 @@
   (or subscriber
       (apply client-wrapper
 	     (apply concat (assoc spec :with-body? true)))))
-			     
+
+(defn subscriber-sender [spec drain max-tries on-fail]
+  (->> spec
+       keywordize-map
+       subscriber
+       (?>> drain draining-fn drain)
+       (with-give-up max-tries on-fail)))
+
 (defn publisher
-  [{:keys [store topic refresh drain]}]
+  [{:keys [store topic refresh drain max-tries]}]
   (assert store)
   (assert topic)
-  (let [subscribers #(map (fn [[_ spec]]
-			  (->> spec
-			       keywordize-map
-			       subscriber
-			       (?>> drain draining-fn drain)))
-			(store :seq topic))
-	subscribers
-	(if refresh	  
-	  (refreshing-resource subscribers refresh)
-	  subscribers)]
-    (partial map-fns (subscribers))))
+  (let [m (java.util.concurrent.ConcurrentHashMap.)
+	on-fail (fn [id spec]
+		  (when (= (store :get topic id) spec)
+		    (store :delete topic id)
+		    (.put m id (assoc (.get m id) :f nil))
+		    (log/info (format "removing subscriber %s from topic %s with spec %s"
+				      id topic (pr-str spec)))))
+	set? (atom false)]
+    (work.core/schedule-work
+     #(try
+	(doseq [[id spec] (store :seq topic)
+		:let [cur (.get m id)]
+		:when (or (nil? cur) (not= (:spec cur) spec))]
+	  (.put m id {:spec spec
+		      :f (subscriber-sender spec drain 5 (partial on-fail id))}))
+	(catch Exception e (.printStackTrace e))
+	(finally (reset! set? true)))
+     (or refresh 10))    
+    (fn [msg]
+      (wait-until #(deref set?))
+      (let [fs (for [{:keys [f]} (.values m) :when f] f)]
+	(doseq [f fs] (f msg))))))
+	  
