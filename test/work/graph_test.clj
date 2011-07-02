@@ -123,7 +123,10 @@
 		"type" "rest"
 		"topic" "foo"
 		"uri" "/foo"
-		"id" "service-id"}]] (s :seq "foo")))
+		"id" "service-id"}]]
+	      (map (fn [[k v]]
+		     [k (select-keys v ["host" "topic" "port" "type" "uri" "id"])])
+		   (s :seq "foo"))))
     (run-sync root (range 4))
     (is (= [1 1 1 2 2 3]
 	     (sort (seq multiq))))

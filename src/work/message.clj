@@ -8,7 +8,9 @@
 	[services.core :only [fn-handler start-web client-wrapper]]
 	[plumbing.error :only [assert-keys]]
 	[work.core :only [schedule-work]])
-  (:require [clojure.contrib.logging :as log]))
+  (:require [clojure.contrib.logging :as log]
+	    [clj-time.core :as time]
+	    [clj-time.coerce :as time-coerce]))
 
 (defn message-merge [_ old new]
   (conj (or old []) new))
@@ -35,7 +37,9 @@
   (assert-keys [:id :topic] subscriber)
   (when-not (store :bucket topic)
     (store :add topic))
-  (store :put topic id subscriber))
+  (store :put topic id
+	 (assoc subscriber
+	   :started (time-coerce/to-string (time/now)))))
     
 (defn topic-notifiers
   "returns map from topic -> notify subscribers"

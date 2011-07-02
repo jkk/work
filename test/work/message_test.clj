@@ -18,9 +18,12 @@
   (let [s (store [] {:type :mem})]
     (add-subscriber s {:id "me" :topic "balls" :host "localhost"})
     (is (= ["me"] (s :keys "balls")))
-    (is (= {:id "me" :topic "balls" :host "localhost"} (s :get "balls" "me")))
+    (is (= {:id "me" :topic "balls" :host "localhost"}
+	   (select-keys (s :get "balls" "me")
+			[:id, :topic, :host])))
     (add-subscriber s {:id "me" :topic "balls" :host "localhost"})
-    (is (= {:id "me" :topic "balls" :host "localhost"} (s :get "balls" "me")))))
+    (is (= {:id "me" :topic "balls" :host "localhost"}
+	   (select-keys (s :get "balls" "me") [:id, :topic, :host])))))
 
 (deftest topic-notifiers-test
   (let [a1 (atom [])
