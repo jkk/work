@@ -212,9 +212,8 @@
 	       {:keys [topic] :as config} root]
   (assert topic)
   (let [n (message/publisher
-	   {:store
-	    (store [topic] remote)
-	    :topic topic})]
+	   (assoc config
+	     :store (store [topic] remote)))]
     (append-child
      parent-id
      (assoc config :f n)
