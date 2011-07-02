@@ -87,7 +87,6 @@
   (let [m (java.util.concurrent.ConcurrentHashMap.)
 	on-fail (fn [id spec]
 		  (when (= (store :get topic id) spec)
-		    (store :delete topic id)
 		    (.put m id (assoc (.get m id) :f nil))
 		    (log/info (format "removing subscriber %s from topic %s with spec %s"
 				      id topic (pr-str spec)))))
@@ -98,7 +97,7 @@
 		:let [cur (.get m id)]
 		:when (or (nil? cur) (not= (:spec cur) spec))]
 	  (.put m id {:spec spec
-		      :f (subscriber-sender spec drain 5 (partial on-fail id))}))
+		      :f (subscriber-sender spec drain 5 (fn [] (on-fail id spec)))}))
 	(catch Exception e (.printStackTrace e))
 	(finally (reset! set? true)))
      (or refresh 10))    
