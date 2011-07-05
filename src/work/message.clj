@@ -16,7 +16,7 @@
   [{:keys [remote subscriber]}]
   (assert-keys [:host, :port] remote)
   (assert-keys [:host, :port, :id] subscriber)
-  {:remote (store [] remote)
+  {:remote (mirror-remote remote)
    :local  (store [])
    :subscriber subscriber})
 
@@ -85,12 +85,23 @@
 		     {:keys [topic drain]}]
   (when-not (local :bucket topic)
     (local :add topic))
-  (doseq [[id spec] (remote :seq topic)]
-    (let [cur (local :get topic id)]
-      (when (or (nil? cur) (not= (:spec cur) spec))
-	(local :put topic id {:spec spec
-			      :f (subscriber-sender spec drain 5
-						    (constantly nil))})))))
+  (when (remote :bucket topic)
+    (doseq [[id spec] (remote :seq topic)]
+      (let [cur (local :get topic id)]
+	(when (or (nil? cur) (not= (:spec cur) spec))
+	  (local :put topic id {:spec spec
+				:f (subscriber-sender spec drain 5
+						      (constantly nil))}))))))
+
+;; (defn scheduled-sync [{:keys [remote local] :as broker}]
+;;   (work.core/schedule-work
+;;    (with-ex #(doseq [[id spec] (remote :seq topic)
+;; 		     :let [cur (local :get topic id)
+;; 			   pub (nil-publisher local topic id spec)]
+;; 		     :when (or (nil? cur) (not= (:spec cur) spec))]
+;; 	       (local :put topic id {:spec spec
+;; 				     :f (subscriber-sender spec drain 5 pub)})))
+;;    (or refresh 10)))
 
 ;;TODO: shoudl close over the multimap, not rebuild it on every call.
 (defn publisher
@@ -110,12 +121,3 @@
 ;;       (local :put topic id
 ;; 	     (assoc local-spec :f nil)))))
 
-;; (defn scheduled-sync [{:keys [remote local] :as broker}]
-;;   (work.core/schedule-work
-;;    (with-ex #(doseq [[id spec] (remote :seq topic)
-;; 		     :let [cur (local :get topic id)
-;; 			   pub (nil-publisher local topic id spec)]
-;; 		     :when (or (nil? cur) (not= (:spec cur) spec))]
-;; 	       (local :put topic id {:spec spec
-;; 				     :f (subscriber-sender spec drain 5 pub)})))
-;;    (or refresh 10)))
