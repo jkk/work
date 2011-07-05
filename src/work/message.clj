@@ -3,7 +3,7 @@
 	[plumbing.error :only [with-ex with-give-up]]
 	[plumbing.accumulators :only [draining-fn]]
 	[plumbing.cache :only [refreshing-resource]]
-        [store.api :only [store]]
+        [store.api :only [store mirror-remote]]
 	[store.core :only [bucket-seq bucket-keys]]
 	[services.core :only [fn-handler start-web client-wrapper]]
 	[plumbing.error :only [assert-keys]]
@@ -19,12 +19,6 @@
   {:remote (store [] remote)
    :local  (store [])
    :subscriber subscriber})
-
-;;TODO: move into store during big store refactoring.  mirror for local rest store.
-(defn mirror-remote [spec]
-  (let [s (store [] spec)
-	ks (s :buckets)]
-    (store ks spec)))
 
 (defn pub-broker
   [{:keys [remote]}]
