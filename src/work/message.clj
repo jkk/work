@@ -88,14 +88,14 @@
        (with-give-up max-tries on-fail)))
 
 (defn add-publisher [{:keys [remote local] :as broker}
-		     {:keys [topic]}]
+		     {:keys [topic drain]}]
   (when-not (local :bucket topic)
     (local :add topic))
   (doseq [[id spec] (remote :seq topic)]
     (let [cur (local :get topic id)]
       (when (or (nil? cur) (not= (:spec cur) spec))
 	(local :put topic id {:spec spec
-			      :f (subscriber-sender spec nil 5
+			      :f (subscriber-sender spec drain 5
 						    (constantly nil))})))))
 
 ;;TODO: shoudl close over the multimap, not rebuild it on every call.
