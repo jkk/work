@@ -1,5 +1,10 @@
 (ns work.message-test
-  (:use work.message store.api clojure.test services.core store.net store.core)
+  (:use work.message
+	store.api
+	clojure.test
+	[services.core :only [start-web]]
+	store.net
+	store.core)
   (:require [work.graph :as graph]))
 
 (def broker-spec
