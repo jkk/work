@@ -52,9 +52,9 @@
 			     :uri "/topic1"
 			     :subscriber f })
 	f (publisher
-	     {:store s
-	      :refresh 10
-	      :topic "topic1"})]
+	   {:local s
+	    :remote s}
+	   {:topic "topic1"})]
     (Thread/sleep 500)
     (f "42")
     (is (= ["42" "42"] @a))))
@@ -63,21 +63,21 @@
   (let [s (store [] {:type :mem})
 	server (start-broker-server s 4446)
 	other-server (atom nil)]
-    (try (let [b (broker broker-spec)
+    (try (let [sub-b (sub-broker broker-spec)
 	       g (->> (graph/priority-in 10 {:f identity})
 		      (merge {:priority 5}))
-	       _ (graph/subscribe b {:id "bar" :topic "foo"} g)
-	       s1     (start-subscribers b)
-	       _ (reset! other-server s1)
-	       publish (publisher {:store (:remote b)
-				   :refresh 10
-				   :topic "foo"})]
+	       _ (graph/subscribe sub-b {:id "bar" :topic "foo"} g)
+	       s1     (start-subscribers sub-b)
+	       _ (reset! other-server s1)]
 	   (Thread/sleep 500)
 	   (is (= ["foo"] (bucket-keys (.bucket-map s))))
-	   (publish "id")
-	   (publish "deznutz")
-	   (is (= (:item ((:in g))) "id"))
-	   (is (= (:item ((:in g))) "deznutz")))
+	   (let [pub-b (pub-broker broker-spec)
+		 publish (publisher pub-b
+				    {:topic "foo"})]
+	     (publish "id")
+	     (publish "deznutz")
+	     (is (= (:item ((:in g))) "id"))
+	     (is (= (:item ((:in g))) "deznutz"))))
 	 (finally
 	  (.stop server)
 	  (when @other-server (.stop @other-server))))))

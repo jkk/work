@@ -12,20 +12,25 @@
 	    [clj-time.core :as time]
 	    [clj-time.coerce :as time-coerce]))
 
-(defn message-merge [_ old new]
-  (conj (or old []) new))
-
-;; subscriber-machine side
-
-(defn broker
-  "remote: ip specification
-   local: ip specification + id"
+(defn sub-broker
   [{:keys [remote subscriber]}]
   (assert-keys [:host, :port] remote)
   (assert-keys [:host, :port, :id] subscriber)
   {:remote (store [] remote)
-   :local  (store [] {:merge message-merge :type :mem})
+   :local  (store [])
    :subscriber subscriber})
+
+;;TODO: move into store during big store refactoring.  mirror for local rest store.
+(defn mirror-remote [spec]
+  (let [s (store [] spec)
+	ks (s :buckets)]
+    (store ks spec)))
+
+(defn pub-broker
+  [{:keys [remote]}]
+  (assert-keys [:host, :port] remote)
+  {:remote (mirror-remote remote)
+   :local  (store [])})
 
 (defn map-fns [fs x]
   (doseq [f fs] (f x)))
@@ -68,8 +73,6 @@
 			:uri (str "/" topic))))
     server))
 
-;; Publisher Side
-
 (defn subscriber 
   [{:keys [subscriber] :as spec}]
   (assert-keys [:host :port :uri] spec)
@@ -84,29 +87,41 @@
        (?>> drain draining-fn drain)
        (with-give-up max-tries on-fail)))
 
+(defn add-publisher [{:keys [remote local] :as broker}
+		     {:keys [topic]}]
+  (when-not (local :bucket topic)
+    (local :add topic))
+  (doseq [[id spec] (remote :seq topic)]
+    (let [cur (local :get topic id)]
+      (when (or (nil? cur) (not= (:spec cur) spec))
+	(local :put topic id {:spec spec
+			      :f (subscriber-sender spec nil 5
+						    (constantly nil))})))))
+
+;;TODO: shoudl close over the multimap, not rebuild it on every call.
 (defn publisher
-  [{:keys [store topic refresh drain max-tries]}]
-  (assert store)
+  [{:keys [local] :as broker}
+   {:keys [topic] :as config}]
+  (assert local)
   (assert topic)
-  (let [m (java.util.concurrent.ConcurrentHashMap.)
-	on-fail (fn [id spec]
-		  (when (= (store :get topic id) spec)
-		    (.put m id (assoc (.get m id) :f nil))
-		    (log/info (format "removing subscriber %s from topic %s with spec %s"
-				      id topic (pr-str spec)))))
-	set? (atom false)]
-    (work.core/schedule-work
-     #(try
-	(doseq [[id spec] (store :seq topic)
-		:let [cur (.get m id)]
-		:when (or (nil? cur) (not= (:spec cur) spec))]
-	  (.put m id {:spec spec
-		      :f (subscriber-sender spec drain 5 (fn [] (on-fail id spec)))}))
-	(catch Exception e (.printStackTrace e))
-	(finally (reset! set? true)))
-     (or refresh 10))    
-    (fn [msg]
-      (wait-until #(deref set?))
-      (let [fs (for [{:keys [f]} (.values m) :when f] f)]
-	(doseq [f fs] (f msg))))))
-	  
+  (add-publisher broker config)
+  (fn [msg]
+    (doseq [[id {:keys [f]}] (local :seq topic)]
+      (when f (f msg)))))
+
+
+;; (defn nil-publisher [local topic id spec]
+;;   (let [local-spec (local :get topic id)]
+;;     (when (= local-spec spec)
+;;       (local :put topic id
+;; 	     (assoc local-spec :f nil)))))
+
+;; (defn scheduled-sync [{:keys [remote local] :as broker}]
+;;   (work.core/schedule-work
+;;    (with-ex #(doseq [[id spec] (remote :seq topic)
+;; 		     :let [cur (local :get topic id)
+;; 			   pub (nil-publisher local topic id spec)]
+;; 		     :when (or (nil? cur) (not= (:spec cur) spec))]
+;; 	       (local :put topic id {:spec spec
+;; 				     :f (subscriber-sender spec drain 5 pub)})))
+;;    (or refresh 10)))

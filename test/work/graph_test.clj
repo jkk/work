@@ -102,7 +102,7 @@
 (deftest rest-broker-system-test
   (let [s (->  (store [] {:type :mem})
 	       (queue-store (:remote broker-spec)))
-	b (message/broker broker-spec)
+	b (message/sub-broker broker-spec)
 	pending (->> (priority-in 10 {:f identity})
 		     (merge {:priority 5})
 		     (subscribe b {:id "bar" :topic "foo"}))
@@ -114,7 +114,8 @@
 			   :id :hang-city)
 		 >>
 		 (each (out inc multiq)))
-	root (publish broker-spec :hang-city
+	pub-b (message/pub-broker broker-spec)
+	root (publish pub-b :hang-city
 		      {:topic "foo" :id "blaz"} root)]
 
     (is (=  [["service-id"

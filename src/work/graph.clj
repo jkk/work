@@ -201,19 +201,14 @@
      root
      rewrites))
 
-
 (defn subscribe
   [{:keys [local]} subscriber  {:keys [offer] :as root}]
   (assert (nil? (:f subscriber)))
   (add-subscriber local (assoc subscriber :f offer))
   root)
 
-(defn publish [{:keys [remote]} parent-id
-	       {:keys [topic] :as config} root]
-  (assert topic)
-  (let [n (message/publisher
-	   (assoc config
-	     :store (store [topic] remote)))]
+(defn publish [broker parent-id config root]
+  (let [n (message/publisher broker config)]
     (append-child
      parent-id
      (assoc config :f n)
