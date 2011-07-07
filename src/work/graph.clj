@@ -83,7 +83,8 @@
     (zip/node loc)))
 
 (defn comp-rewrite
-  [{:keys [f children multimap when] :as vertex}]		   
+  [{:keys [f children multimap when] :as vertex}
+   & [threads]]		   
   {:f (fn [x]
 	(if (or (not when) (when x))
 	  (let [fx (f x)]
@@ -92,7 +93,8 @@
 		    :let [childf (-> child comp-rewrite :f)]]
 	      (childf cx))
 	    fx)))
-   :id "all"})
+   :id "all"
+   :threads threads})
 
 (defn queue-rewrite
   [{:keys [f children multimap when] :as vertex}]
@@ -114,19 +116,14 @@
   (fn [& args]
     (queue/offer q (apply f args))))
 
-(defn update-nodes [f root]
+(defn update-nodes [root f]
   (let [update (fn [l] (zip/edit l f))]
     (loop [loc (graph-zip root)]
 	(if (zip/end? loc)
 	  (zip/root loc)
 	  (recur (-> loc update zip/next))))))
 
-(defn filter-nodes [pred root]
-  (->> root graph-zip zf/descendants
-       (filter (comp pred zip/node))
-       (map zip/node)))
-
-(defn update-node [id f root]
+(defn update-node [root id f]
   (let [id? (fn [l] (= id (:id (zip/node l))))
 	update (fn [l] (zip/edit l f))]
     (loop [loc (graph-zip root)]
@@ -136,11 +133,12 @@
 	    (-> loc update zip/root)
 	    :else (recur (-> loc update zip/next))))))
 
-(defn append-child [id child-node root]
+(defn append-child [root id child-node]
   (update-node
+   root
    id
-   #(child % (apply node (:f child-node) (flatten (seq child-node))))
-   root))
+   #(child % (apply node (:f child-node)
+		    (flatten (seq child-node))))))
 
 (defn add-pool
   [{:keys [threads]
@@ -166,7 +164,7 @@
 	(callback item)
 	result))))
 
-(defn priority-in [priority {:keys [f] :as root}]
+(defn priority-in [{:keys [f] :as root} priority]
   (assert-keys [:f] root)
   (let [in (queue/priority-queue
 	    200
@@ -179,57 +177,55 @@
       :f (priority-fn f)
       :in #(queue/poll in))))
 
-(defn refill [refill {:keys [offer queue] :as root}]
+(defn refill [{:keys [offer queue] :as root} refill]
   (assert-keys [:offer :queue] root)
   (when (empty? queue)
-    (doseq [x (remove nil? (refill))]
-      (with-ex (logger) offer x)))
+    (let [o (partial with-ex (logger) offer)]
+      (doseq [x (remove nil? (refill))]
+	(o x))))
   root)
 
-(defn schedule-refill [refill-fn freq root]
+(defn schedule-refill [root refill-fn freq]
   (let [pool (work/schedule-work #(refill refill-fn root) freq)]
-    (update-in root [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
+    (update-in root [:shutdown]
+	       conj (fn [] (work/two-phase-shutdown pool)))))
 
-(defn observer-rewrite [observer root]
+(defn observer-rewrite [root observer]
   (update-nodes
-    (fn [v] (assoc v :f (observer v)))
-    root))
+   root
+   (fn [v] (assoc v :f (observer v)))))
 
-(defn graph-rewrite [rewrites root]
+(defn graph-rewrite [root rewrites]
   (reduce
      (fn [root rewrite] (rewrite root))
      root
      rewrites))
 
 (defn subscribe
-  [{:keys [local]} subscriber  {:keys [offer] :as root}]
+  [{:keys [offer] :as root}
+   {:keys [local]}
+   subscriber]
   (assert (nil? (:f subscriber)))
   (add-subscriber local (assoc subscriber :f offer))
   root)
 
-(defn publish [broker parent-id config root]
+(defn publish [root broker parent-id config]
   (let [n (message/publisher broker config)]
     (append-child
+     root
      parent-id
-     (assoc config :f n)
-     root)))
+     (assoc config :f n))))
 
-(defn run-sync [graph-loc data & rewrites]
-  (let [mono (->>  graph-loc
-		   zip/root
-		   (graph-rewrite rewrites)
-		   comp-rewrite
-		   :f)]
+(defn run-sync [graph-loc data]
+  (let [mono (-> graph-loc comp-rewrite :f)]
     (doseq [x data] (mono x))))
 
 (defn run-pool
-  [graph-loc & rewrites]
-  (->> graph-loc
-       zip/root
-       (graph-rewrite rewrites)
-       queue-rewrite
-       fifo-in
-       (update-nodes add-pool)))
+  [graph-loc]
+  (-> graph-loc
+      queue-rewrite
+      fifo-in
+      (update-nodes add-pool)))
 
 (defn kill-graph [root]
   (doseq [n (-> root all-vertices)

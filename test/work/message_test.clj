@@ -69,9 +69,9 @@
 	server (start-broker-server s 4446)
 	other-server (atom nil)]
     (try (let [sub-b (sub-broker broker-spec)
-	       g (->> (graph/priority-in 10 {:f identity})
-		      (merge {:priority 5}))
-	       _ (graph/subscribe sub-b {:id "bar" :topic "foo"} g)
+	       g (-> {:f identity}
+		     (graph/priority-in 10)
+		     (graph/subscribe sub-b {:id "bar" :topic "foo"}))
 	       s1     (start-subscribers sub-b)
 	       _ (reset! other-server s1)]
 	   (Thread/sleep 500)

@@ -1,11 +1,13 @@
 (ns work.message
   (:use [plumbing.core :only [apply-each ?>> keywordize-map wait-until]]
 	[plumbing.error :only [with-ex with-give-up]]
+	[compojure.core :only [GET]]
 	[plumbing.accumulators :only [draining-fn]]
 	[plumbing.cache :only [refreshing-resource]]
         [store.api :only [store mirror-remote]]
 	[store.core :only [bucket-seq bucket-keys]]
-	[services.core :only [fn-handler start-web client-wrapper]]
+	[services.core :only [fn-handler start-web client-wrapper
+			      js-response]]
 	[plumbing.error :only [assert-keys]]
 	[work.core :only [schedule-work]])
   (:require [clojure.contrib.logging :as log]
@@ -66,6 +68,28 @@
 			:topic topic
 			:uri (str "/" topic))))
     server))
+
+;;TODO: refactor with graph to create a priority message policy.  this specil code then goes away and becomes a regular subscriber.  just allow sending a callback with any message to get notified when it completes.  this is is similar to message processing politices for batch and multimap.
+(defn priority-server [{:keys [offer] :as root} name port http-get]
+  (start-web [(GET (str "/" name) {p :params}
+		   (let [item (p "item")
+			 callback (p "callback")
+			 priority (Integer/parseInt
+				   (or (p "priority") "1"))]
+		     (if (offer {:priority priority
+				 :item item
+				 :callback #(http-get {:url callback
+						       :query-params {:item item}})})
+		       (js-response p
+				    (format "ok submitting %s" item)
+				    :ok)
+		       (js-response p
+				    (format "error submitting %s" item)
+				    :server-error))))]
+	     {:port port
+	      :join? false})
+  root)
+
 
 (defn subscriber 
   [{:keys [subscriber] :as spec}]

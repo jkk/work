@@ -1,7 +1,8 @@
 (ns work.graph-test
   (:require [work.queue :as q]
 	    [work.message :as message]
-	    [clojure.zip :as zip])
+	    [clojure.zip :as zip]
+	       [clojure.contrib.zip-filter :as zf])
   (:use clojure.test
 	plumbing.core
 	plumbing.error
@@ -21,16 +22,21 @@
   (wait-until #(= (.size response-q) expected-seq-size) 5)
   (iterator-seq (.iterator response-q)))
 
+(defn filter-nodes [root pred]
+  (->> root graph-zip zf/descendants
+       (filter (comp pred zip/node))
+       (map zip/node)))
+
 (deftest append-child-test
   (let [g1 (-> (graph)
-	      (each inc :id :foo)
-	      >>
-	      (each inc :id :bar))
-	g2 (append-child
-	    :foo {:id :child :f inc} g1)
-	foo  (->> g2 zip/root
-		  (filter-nodes #(-> % :id (= :foo)))
-		  first)]
+	       (each inc :id :foo)
+	       >>
+	       (each inc :id :bar)
+	       (append-child
+		:foo {:id :child :f inc}))
+	foo  (-> g1 zip/root
+		 (filter-nodes #(-> % :id (= :foo)))
+		 first)]
     
     (is (= [:child :bar] (map :id (:children foo))))))
 
@@ -39,7 +45,8 @@
 	idq (q/local-queue)
 	root (-> (graph)
 		 (each (out inc incq))
-		 (each (out identity idq)))]    
+		 (each (out identity idq))
+		 zip/root)]    
     (run-sync root (range 5))
     (is (= (range 1 6) (seq (sort incq))))
     (is (= (range 5) (seq (sort idq))))))
@@ -55,7 +62,8 @@
 		 (subgraph
 		  (each identity)
 		  >>
-		  (each (out dec idq))))]
+		  (each (out dec idq)))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 2 7) (seq (sort incq))))
     (is (= (range -1 4) (seq (sort idq))))))
@@ -68,18 +76,21 @@
 		(apply f args)))
 	incq (q/local-queue)
 	root (-> (graph)
-		 (each (out inc incq)))]
-    (run-sync root (range 5) (partial observer-rewrite obs))
+		 (each (out inc incq))
+		 zip/root
+		 (observer-rewrite obs))]
+    (run-sync root (range 5))
     (is (= (range 1 6) (seq (sort incq))))
     ;;observes the root identity node, child, and whole graph
-    (is (= 10 @a)))) 
+    (is (= 10 @a))))
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
 	root (-> (graph)
 		 (multimap range)
 		 >>
-		 (each (out inc multiq)))]
+		 (each (out inc multiq))
+		 zip/root)]
     (run-sync root (range 4))
     (is (= [1 1 1 2 2 3]
 	     (sort (seq multiq))))))
@@ -103,21 +114,21 @@
   (let [s (->  (store [] {:type :mem})
 	       (queue-store (:remote broker-spec)))
 	b (message/sub-broker broker-spec)
-	pending (->> (priority-in 10 {:f identity})
-		     (merge {:priority 5})
+	pending (-> {:f identity}
+		    (priority-in 10)
 		     (subscribe b {:id "bar" :topic "foo"}))
 	_ (message/start-subscribers b)
 	in (:in pending)
 	multiq (q/local-queue)
+	pub-b (message/pub-broker broker-spec)
 	root (-> (graph)
 		 (multimap range
 			   :id :hang-city)
 		 >>
-		 (each (out inc multiq)))
-	pub-b (message/pub-broker broker-spec)
-	root (publish pub-b :hang-city
-		      {:topic "foo" :id "blaz"} root)]
-
+		 (each (out inc multiq))
+		 (publish pub-b :hang-city
+			  {:topic "foo" :id "blaz"})
+		 zip/root)]
     (is (=  [["service-id"
 	      {"host" "localhost"
 		"port" 4455
@@ -140,7 +151,8 @@
 	root (-> (graph)
 		 (multimap range :when even?)
 		 >>
-		 (each (out inc multiq)))]
+		 (each (out inc multiq))
+		 zip/root)]
     (run-sync root (range 4))
     (is (= [1 2]
 	     (sort (seq multiq))))))
@@ -154,7 +166,8 @@
 		 >>
 		 (each inc)
 		 >>
-		 (each (out inc incq)))]
+		 (each (out inc incq))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 4 9) (sort (seq incq))))))
 
@@ -172,7 +185,8 @@
   (let [incq (q/local-queue)
 	root (-> (graph)
 		 (inline-graph (root-graph inc))
-		 (each (out inc incq)))]
+		 (each (out inc incq))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 5 10) (sort (seq incq))))))
 
@@ -182,7 +196,8 @@
 		 (each inc)
 		 >>
 		 (inline-graph (root-graph inc))
-		 (each (out inc incq)))]
+		 (each (out inc incq))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 6 11) (sort (seq incq))))))
 
@@ -198,7 +213,8 @@
 		 >>
 		 (each inc)
 		 >>
-		 (each (out inc incq)))]
+		 (each (out inc incq))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= [2 2 3 2 3 4 2 3 4 5 2 3 4 5 6]
 	     (seq incq)))))
@@ -211,7 +227,8 @@
 		 >>
 		 (each (out inc incq))
 		 (each (out (partial + 2)
-			     plus2q)))]
+			    plus2q))
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 2 7) (seq incq)))
     (is (= (range 3 8) (seq plus2q)))))
@@ -224,9 +241,9 @@
 		      (when (@s x)
 			(println "ALREADY SAW YOU"))
 		      (swap! s conj x))
-		    :threads 10))
-	root (run-pool g
-		  fifo-in)]
+		    :threads 10)
+	      zip/root)
+	root (run-pool g)]
     (q/offer-all (:queue root) (range 1e6))
     (wait-until #(= (count @s) 1e6) 10)
     (is (= (count @s) 1e6))
@@ -237,7 +254,8 @@
 	idq (q/local-queue)
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
-		 (each (out inc incq) :when odd?))]
+		 (each (out inc incq) :when odd?)
+		 zip/root)]
     (run-sync root (range 5))
     (is (= (range 2 5 2) (seq incq)))
     (is (= (range 0 5 2) (seq idq)))))
@@ -247,8 +265,9 @@
 	idq (q/local-queue)
 	root (-> (graph)
 		 (each (out identity idq) :when even?)
-		 (each (out inc incq) :when odd?))
-	running (run-pool root comp-rewrite)]
+		 (each (out inc incq) :when odd?)
+		 zip/root)
+	running (run-pool root)]
     (q/offer-all (:queue running) (range 5))
     (is (= (range 2 5 2) (sort (wait-for-complete-results incq 2))))
     (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
@@ -258,14 +277,16 @@
   (let [incq (q/local-queue)
 	[a l] (atom-logger)
       root (-> (graph)
-	       (each (out inc incq)))]
-    (run-sync root [1 2 "fuck" 3]
-	      (partial observer-rewrite (fn [f] #(with-ex l f %))))
+	       (each (out inc incq))
+	       zip/root
+	       (observer-rewrite (fn [{:keys [f]}]
+				   #(with-ex l f %))))]
+    (run-sync root [1 2 "fuck" 3])
       (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
       (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))
 
 (deftest priority-in-test
-  (let [{:keys [in offer queue f]} (priority-in 5 {:f identity})]
+  (let [{:keys [in offer queue f]} (priority-in {:f identity} 5)]
     (offer 10)
     (offer {:item 2 :priority 10})
     (offer {:item 3 :priority 1})
