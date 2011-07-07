@@ -186,7 +186,7 @@
   root)
 
 (defn schedule-refill [root refill-fn freq]
-  (let [pool (work/schedule-work #(refill refill-fn root) freq)]
+  (let [pool (work/schedule-work #(refill root refill-fn) freq)]
     (update-in root [:shutdown]
 	       conj (fn [] (work/two-phase-shutdown pool)))))
 
