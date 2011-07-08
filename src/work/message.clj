@@ -15,6 +15,7 @@
 	    [clj-time.coerce :as time-coerce]))
 
 (defn sub-broker
+  "spec -> map. create a broker from a spec containg 1) a spec for the remote broker, and 2) a subscriber, which may be a subscriber spec, or a function (as is often the case for testing.)"
   [{:keys [remote subscriber]}]
   (assert-keys [:host, :port] remote)
   (assert-keys [:host, :port, :id] subscriber)
@@ -93,7 +94,6 @@
 
 (defn subscriber 
   [{:keys [subscriber] :as spec}]
-  (assert-keys [:host :port :uri] spec)
   (or subscriber
       (apply client-wrapper
 	     (apply concat (assoc spec :with-body? true)))))
@@ -129,6 +129,7 @@
 
 ;;TODO: shoudl close over the multimap, not rebuild it on every call.
 (defn publisher
+  "broker -> config -> publisher.  create a local publisher, publishing to all subscribers found in broker that are subscribed on the topic supplied in config."
   [{:keys [local] :as broker}
    {:keys [topic] :as config}]
   (assert local)
@@ -137,11 +138,3 @@
   (fn [msg]
     (doseq [[id {:keys [f]}] (local :seq topic)]
       (when f (f msg)))))
-
-
-;; (defn nil-publisher [local topic id spec]
-;;   (let [local-spec (local :get topic id)]
-;;     (when (= local-spec spec)
-;;       (local :put topic id
-;; 	     (assoc local-spec :f nil)))))
-

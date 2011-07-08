@@ -7,7 +7,6 @@
 	plumbing.core
 	plumbing.error
 	work.graph
-	;; work.queue
 	[store.core :only [bucket-keys]]
 	[store.api :only [store]]
 	[ring.adapter.jetty :only [run-jetty]]
@@ -27,7 +26,25 @@
        (filter (comp pred zip/node))
        (map zip/node)))
 
-(deftest append-child-test
+(defn dag-ids [root]
+  (->> root graph-zip zf/descendants
+       (map (comp :id zip/node))))
+
+(deftest update-node-test
+  (let [g1 (-> (graph)
+	       (each inc :id :foo)
+	       >>
+	       (each inc :id :bar)
+	       (update-loc
+		:bar #(add-child % (node inc :id :child)))
+	       zip/root)
+	bar  (-> g1
+		 (filter-nodes #(-> % :id (= :bar)))
+		 first)]
+    (is (= [:root :foo :bar :child] (dag-ids g1)))
+    (is (= [:child] (map :id (:children bar))))))
+
+(deftest append-child-head-test
   (let [g1 (-> (graph)
 	       (each inc :id :foo)
 	       >>
@@ -39,6 +56,23 @@
 		 first)]
     
     (is (= [:child :bar] (map :id (:children foo))))))
+
+(deftest append-child-tail-test
+  (let [g1 (-> (graph)
+	       (each inc :id :foo)
+	       >>
+	       (each inc :id :bar)
+	       (append-child
+		:bar {:id :child :f inc}))
+	foo  (-> g1 zip/root
+		 (filter-nodes #(-> % :id (= :foo)))
+		 first)
+	bar  (-> g1 zip/root
+		 (filter-nodes #(-> % :id (= :bar)))
+		 first)]
+    
+    (is (= [:bar] (map :id (:children foo))))
+    (is (= [:child] (map :id (:children bar))))))
 
 (deftest one-node-graph-test
   (let [incq (q/local-queue)

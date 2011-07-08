@@ -39,7 +39,7 @@
   (graph-zip
    (node identity :id :root)))
 
-(defn- add-child
+(defn add-child
   [parent child]
   (update-in parent [:children] conj child))
 
@@ -123,22 +123,22 @@
 	  (zip/root loc)
 	  (recur (-> loc update zip/next))))))
 
-(defn update-node [root id f]
+(defn update-loc [loc id f]
   (let [id? (fn [l] (= id (:id (zip/node l))))
 	update (fn [l] (zip/edit l f))]
-    (loop [loc (graph-zip root)]
-      (cond (zip/end? loc)
-	    (zip/root loc)
-	    (id? loc)
-	    (-> loc update zip/root)
-	    :else (recur (-> loc update zip/next))))))
+    (loop [loc (-> loc zip/root graph-zip)]
+      (cond (id? loc)
+	    (-> loc update zip/root graph-zip)
+	    (zip/end? loc)
+	    (-> loc zip/root graph-zip)
+	    :else (recur (-> loc zip/next))))))
 
 (defn append-child [root id child-node]
-  (update-node
+  (update-loc
    root
    id
-   #(child % (apply node (:f child-node)
-		    (flatten (seq child-node))))))
+   #(add-child % (apply node (:f child-node)
+			(flatten (seq child-node))))))
 
 (defn add-pool
   [{:keys [threads]
