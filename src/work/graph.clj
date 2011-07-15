@@ -148,8 +148,10 @@
 	      (constantly vertex) threads)]
     (update-in vertex [:shutdown] conj (fn [] (work/two-phase-shutdown pool)))))
 
-(defn fifo-in [root]
-  (let [in (queue/local-queue)]
+(defn fifo-in [root & [capacity]]
+  (let [in (if capacity
+	     (queue/blocking-queue capacity)
+	     (queue/local-queue))]
     (assoc root
       :queue in
       :offer #(queue/offer-unique

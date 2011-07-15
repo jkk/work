@@ -31,6 +31,9 @@
   ([^java.util.Collection xs]
      (LinkedBlockingQueue. xs)))
 
+(defn blocking-queue [capicity]
+  (LinkedBlockingQueue. (int capicity)))
+
 (defn priority-queue
   ([]
      (PriorityBlockingQueue.))
