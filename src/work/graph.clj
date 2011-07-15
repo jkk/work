@@ -12,7 +12,7 @@
    [work.message :as message]
    [clojure.contrib.zip-filter :as zf]
    [work.queue :as queue])
-  (:import [java.util.concurrent Executors]))
+  (:import [java.util.concurrent BlockingQueue Executors]))
 
 (defn node
   [f  &
@@ -154,8 +154,9 @@
 	     (queue/local-queue))]
     (assoc root
       :queue in
-      :offer #(queue/offer-unique
-	       in %)
+      :offer (if capacity
+	       #(.put ^BlockingQueue in %)
+	       #(queue/offer in %))	       
       :in #(queue/poll in))))
 
 (defn priority-fn [f]
@@ -173,7 +174,7 @@
 	    queue/priority)]
     (assoc root
       :queue in
-      :offer #(queue/offer-unique
+      :offer #(queue/offer
 	       in
 	       (queue/priority-item priority %))
       :f (priority-fn f)
