@@ -1,6 +1,7 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
   (:import (java.util.concurrent LinkedBlockingQueue
+				 BlockingQueue
                                  PriorityBlockingQueue))
   (:use [services.core :only [client-wrapper fn-handler start-web]]
 	[store.api :only [store]]
@@ -33,6 +34,15 @@
 
 (defn blocking-queue [capicity]
   (LinkedBlockingQueue. (int capicity)))
+
+(defn drain
+  "return seq of drained elements from Blocking Queue"
+  [^BlockingQueue q & [max-elems]]
+  (let [c (java.util.ArrayList.)]
+    (if max-elems
+      (.drainTo q c (int max-elems))
+      (.drainTo q c))
+    (seq c)))
 
 (defn priority-queue
   ([]
