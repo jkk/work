@@ -86,3 +86,28 @@
 	 (finally
 	  (.stop server)
 	  (when @other-server (.stop @other-server))))))
+
+(deftest stress-rest-queue-handler-test
+  (let [s (store [] {:type :mem})
+	server (start-broker-server s 4446)
+	other-server (atom nil)]
+    (try (let [sub-b (sub-broker broker-spec)
+	       g (-> {:f identity}
+		     (graph/priority-in 10)
+		     (graph/subscribe sub-b {:id "bar" :topic "foo"}))
+	       s1     (start-subscribers sub-b)
+	       _ (reset! other-server s1)]
+	   (Thread/sleep 500)
+	   (let [pub-b (pub-broker broker-spec)
+		 publish (publisher pub-b
+				    {:topic "foo"})]
+	     (dotimes [i 5000]
+	       (Thread/sleep 10)
+	       (publish (str i)))
+	     (Thread/sleep 2000)
+	     (is (= (count (:queue g)) 5000))
+	     (println (take 5 (:queue g)))
+	    (is (= (map str (range 5000)) (sort-by #(Integer/parseInt %) (map :item (:queue g)))))))
+	 (finally
+	  (.stop server)
+	  (when @other-server (.stop @other-server))))))

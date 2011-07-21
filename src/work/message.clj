@@ -110,12 +110,12 @@
   (when-not (local :bucket topic)
     (local :add topic))
   (when (remote :bucket topic)
-    (doseq [[id spec] (remote :seq topic)]
-      (let [cur (local :get topic id)]
-	(when (or (nil? cur) (not= (:spec cur) spec))
-	  (local :put topic id {:spec spec
-				:f (subscriber-sender spec drain 5
-						      (constantly nil))}))))))
+    (doseq [[id spec] (remote :seq topic)
+	    :let [cur (local :get topic id)]
+	    :when (or (nil? cur) (not= (:spec cur) spec))
+	    :let [pub-fn (subscriber-sender spec drain 5
+			     (constantly nil))]]
+      (local :put topic id {:spec spec :f pub-fn}))))
 
 ;; (defn scheduled-sync [{:keys [remote local] :as broker}]
 ;;   (work.core/schedule-work
