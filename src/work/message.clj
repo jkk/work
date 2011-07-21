@@ -114,7 +114,7 @@
 	    :let [cur (local :get topic id)]
 	    :when (or (nil? cur) (not= (:spec cur) spec))
 	    :let [pub-fn (subscriber-sender spec drain 5
-			     (constantly nil))]]
+			    #(log/info (format "Giving up on publishing to %s %s" id (pr-str spec))))]]
       (local :put topic id {:spec spec :f pub-fn}))))
 
 ;; (defn scheduled-sync [{:keys [remote local] :as broker}]

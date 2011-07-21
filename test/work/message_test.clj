@@ -102,7 +102,6 @@
 		 publish (publisher pub-b
 				    {:topic "foo"})]
 	     (dotimes [i 5000]
-	       (Thread/sleep 10)
 	       (publish (str i)))
 	     (Thread/sleep 2000)
 	     (is (= (count (:queue g)) 5000))
