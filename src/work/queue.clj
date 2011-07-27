@@ -32,7 +32,7 @@
   ([^java.util.Collection xs]
      (LinkedBlockingQueue. xs)))
 
-(defn blocking-queue [capicity]
+(defn ^BlockingQueue blocking-queue [capicity]
   (LinkedBlockingQueue. (int capicity)))
 
 (defn drain
