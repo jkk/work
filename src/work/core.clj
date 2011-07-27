@@ -4,7 +4,7 @@
 	    [work.queue :as workq]
             [clojure.contrib.logging :as log])
   (:use work.queue
-	[store.core :only [bucket-seq bucket-merge-to! bucket-merge hashmap-bucket, with-merge]]
+	[store.core :only [bucket-seq bucket-merge-to! bucket-merge bucket hashmap-bucket with-merge]]
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]
         [plumbing.error :only [with-ex logger]])
@@ -151,8 +151,8 @@
 
 (defn map-reduce [map-fn reduce-fn num-workers input]
   (let [pool (Executors/newFixedThreadPool (int num-workers))
-	get-bucket #(with-merge (hashmap-bucket)
-		      (fn [_ accum new] (reduce-fn accum new)))
+	get-bucket #(bucket {:type :mem
+                             :merge (fn [_ accum new] (reduce-fn accum new))})
 	res (get-bucket)
 	in-queue (workq/local-queue input)
 	latch (CountDownLatch. (int  num-workers))
