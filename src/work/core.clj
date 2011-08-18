@@ -110,44 +110,49 @@
     (dotimes [_ num-workers] (submit-to pool schedule-work))
     pool))
 
-(defn do-work [f num-workers tasks]
-  (when-not (empty? tasks)
-    (let [pool (Executors/newFixedThreadPool num-workers)
-	  tasks (seq tasks)
-	  in (workq/local-queue tasks)
-	  latch (CountDownLatch. (count tasks))
-	  worker {:f f
-		  :in #(workq/poll in)
-		  :clean-up (fn [& _] (.countDown latch))}]		  
-      (dotimes [_ num-workers]
-	(submit-to pool
-	   (fn []
-	     (if (empty? in)
-	       :done
-	       worker))))
-      (.await latch)
-      (future (two-phase-shutdown pool)))))
+(defn do-work
+  ([f num-workers tasks]
+     (do-work (repeat num-workers f) tasks))
+  ([workers tasks]
+      (when-not (empty? tasks)
+	(let [pool (Executors/newFixedThreadPool (count workers))
+	      tasks (seq tasks)
+	      in (workq/local-queue tasks)
+	      latch (CountDownLatch. (count tasks))
+	      workers (map (fn [f]
+			     {:f f
+			      :in #(workq/poll in)
+			      :clean-up (fn [& _] (.countDown latch))})
+			   workers)]		  
+	  (doseq [worker workers]
+	    (submit-to pool #(if (empty? in) :done worker)))
+	  (.await latch)
+	  (future (two-phase-shutdown pool))))))
 
-(defn map-work [f num-workers tasks]
-  (let [pool (Executors/newFixedThreadPool num-workers)
-	latch (CountDownLatch. (count tasks))
-	tasks (seq tasks)
-	out-queue (workq/local-queue)
-	in-queue (workq/local-queue tasks)
-	worker {:f f
-		:in #(workq/poll in-queue)
-		:out (partial workq/offer out-queue)
-		:clean-up (fn [& _] (.countDown latch))}]
-    (dotimes [_ num-workers]
-      (submit-to pool #(if (empty? in-queue) :done  worker)))
-    (take-while (fn [x] (not (= :eof x)))
-		(repeatedly
-		  #(sleeper-exp-strategy
-		     (fn []
-		       (if (and (.isEmpty out-queue) (zero? (.getCount latch)))
-			 (do (shutdown-now pool)
-			     :eof)			    
-			 (workq/poll out-queue))))))))
+(defn map-work
+  ([f num-workers tasks]
+     (map-work (repeat num-workers f) tasks))
+  ([workers tasks]
+     (let [pool (Executors/newFixedThreadPool (count workers))
+	   latch (CountDownLatch. (count tasks))
+	   tasks (seq tasks)
+	   out-queue (workq/local-queue)
+	   in-queue (workq/local-queue tasks)
+	   workers (map (fn [f] {:f f
+				:in #(workq/poll in-queue)
+				:out (partial workq/offer out-queue)
+				:clean-up (fn [& _] (.countDown latch))})
+		       workers)]
+       (doseq [worker workers]
+	 (submit-to pool #(if (empty? in-queue) :done  worker)))
+       (take-while (fn [x] (not (= :eof x)))
+		   (repeatedly
+		    #(sleeper-exp-strategy
+		      (fn []
+			(if (and (.isEmpty out-queue) (zero? (.getCount latch)))
+			  (do (shutdown-now pool)
+			      :eof)			    
+			  (workq/poll out-queue)))))))))
 
 (defn map-reduce [map-fn reduce-fn num-workers input]
   (let [pool (Executors/newFixedThreadPool (int num-workers))
