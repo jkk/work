@@ -154,13 +154,57 @@
 			      :eof)			    
 			  (workq/poll out-queue)))))))))
 
+;;NOTES:
+;;-removed blocking on filling the input queue.  That implementation was required because the condition to check whether to countdown on the latch was made based on the queue being empty, which could theoreticly happen before the job is done if the queu is filled on a different thread while workers are working.
+;;still forces all reduce results to be realized in memory, the right thing to do is refactor to work better with store to allow streaming merges into flushing storess, which is also the path to distributed workers merging localy flushing to remote stores.
 (defn map-reduce [map-fn reduce-fn num-workers input]
   (let [pool (Executors/newFixedThreadPool (int num-workers))
 	get-bucket #(bucket {:type :mem
                              :merge (fn [_ accum new] (reduce-fn accum new))})
 	res (get-bucket)
+	in-queue (workq/local-queue)
+	sentinel (java.util.UUID/randomUUID)
+	_ (future (do (doseq [x input]
+			(workq/offer in-queue x))
+		      (workq/offer in-queue sentinel)))
+	^CountDownLatch terminal-latch (CountDownLatch. 1)
+	^CountDownLatch mapper-latch (CountDownLatch. (int num-workers))
+	terminator (fn [x]
+		     (if (= x sentinel)
+		       ;;returning nil makes exec work loop on this thread go to sleep.
+		       (.countDown terminal-latch)
+		       (map-fn x)))
+	defaults {:f terminator :in #(workq/poll in-queue)}
+	buckets (repeatedly num-workers get-bucket)]
+    (doseq [b buckets]
+      (submit-to pool
+	 (let [b (get-bucket)]
+	   #(if (= 0 (.getCount terminal-latch))
+	      (do (try
+		   (bucket-merge-to! b res)
+		   (finally (.countDown mapper-latch)))
+		 :done)
+	     (assoc defaults :out
+	       (fn [kvs]
+		 (doseq [[k v] kvs]
+		   (bucket-merge b k v))))))))
+    ;;block on mapper encountering the sentinel value
+    (.await terminal-latch)
+    ;;other mappers could still be processing tasks, ensure they finish.
+    (.await mapper-latch)
+    ;;ensure all reducers are merged
+    (doseq [b buckets]
+      (bucket-merge-to! b res))
+    (shutdown-now pool)
+    res))
+
+#_(defn map-reduce [map-fn reduce-fn num-workers input]
+  (let [pool (Executors/newFixedThreadPool (int num-workers))
+	get-bucket #(bucket {:type :mem
+                             :merge (fn [_ accum new] (reduce-fn accum new))})
+	res (get-bucket)
 	in-queue (workq/local-queue input)
-	latch (CountDownLatch. (int  num-workers))
+	latch (CountDownLatch. (int num-workers))
 	defaults {:f map-fn :in #(workq/poll in-queue)}]
     (dotimes [_ num-workers]
       (submit-to pool
