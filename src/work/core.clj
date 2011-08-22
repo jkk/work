@@ -198,30 +198,6 @@
     (shutdown-now pool)
     res))
 
-#_(defn map-reduce [map-fn reduce-fn num-workers input]
-  (let [pool (Executors/newFixedThreadPool (int num-workers))
-	get-bucket #(bucket {:type :mem
-                             :merge (fn [_ accum new] (reduce-fn accum new))})
-	res (get-bucket)
-	in-queue (workq/local-queue input)
-	latch (CountDownLatch. (int num-workers))
-	defaults {:f map-fn :in #(workq/poll in-queue)}]
-    (dotimes [_ num-workers]
-      (submit-to pool
-	 (let [b (get-bucket)]
-	   #(if (empty? in-queue)
-	     (do (try
-		   (bucket-merge-to! b res)
-		   (finally (.countDown latch)))
-		 :done)
-	     (assoc defaults :out
-	       (fn [kvs]
-		 (doseq [[k v] kvs]
-		   (bucket-merge b k v))))))))       
-    (.await latch)
-    (shutdown-now pool)
-    res))
-
 (defn mapchunk-reduce
   [map-fn reduce-fn num-workers chunk-size input]
   (->> input
