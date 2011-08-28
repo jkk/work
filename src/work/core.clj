@@ -145,31 +145,51 @@
 	 (.await mapper-latch)
 	 (shutdown-now pool)))))
 
-;;TODO: we should not be using map-work anywhere.  seek and destroy uses - should probably be map-reduce or graphs.
+;;TODO: merge with do-work and map-reduce: one aggreagtor to rule them all.
 (defn map-work
   ([f num-workers tasks]
      (map-work (repeat num-workers f) tasks))
   ([workers tasks]
      (let [pool (Executors/newFixedThreadPool (count workers))
-	   latch (CountDownLatch. (count tasks))
-	   tasks (seq tasks)
+	   in-queue (workq/local-queue)
+	   sentinel (java.util.UUID/randomUUID)
+	   _ (future (do (doseq [x tasks]
+			   (workq/offer in-queue x))
+			 (workq/offer in-queue sentinel)))
+	   ^CountDownLatch terminal-latch (CountDownLatch. 1)
+	   ^CountDownLatch mapper-latch (CountDownLatch. (count workers))
 	   out-queue (workq/local-queue)
-	   in-queue (workq/local-queue tasks)
-	   workers (map (fn [f] {:f f
-				:in #(workq/poll in-queue)
-				:out (partial workq/offer out-queue)
-				:clean-up (fn [& _] (.countDown latch))})
-		       workers)]
+	   terminator (fn [f x]
+			(if (= x sentinel)
+			  ;;returning nil makes exec work loop on this thread go to sleep.
+			  (.countDown terminal-latch)
+			  (f x)))
+	   workers (map (fn [f]
+			  {:f (partial terminator f)
+			   :in #(workq/poll in-queue)
+			   :out (partial workq/offer out-queue)})
+			workers)]
        (doseq [worker workers]
-	 (submit-to pool #(if (empty? in-queue) :done  worker)))
-       (take-while (fn [x] (not (= :eof x)))
-		   (repeatedly
-		    #(sleeper-exp-strategy
-		      (fn []
-			(if (and (.isEmpty out-queue) (zero? (.getCount latch)))
-			  (do (shutdown-now pool)
-			      :eof)			    
-			  (workq/poll out-queue)))))))))
+	 (submit-to pool
+		    #(if (= 0 (.getCount terminal-latch))
+		       (do (.countDown mapper-latch)
+			   :done)
+		       worker)))
+       ;;block on mapper encountering the sentinel value
+       (.await terminal-latch)
+       ;;other mappers could still be processing tasks, ensure they finish.
+       (.await mapper-latch)
+       (shutdown-now pool)
+       (seq out-queue)
+       ;;TODO lazy seq over queue/stream of results.
+       #_(take-while (fn [x] (not (= :eof x)))
+		     (repeatedly
+		      #(sleeper-exp-strategy
+			(fn []
+			  (if (and (.isEmpty out-queue) (zero? (.getCount latch)))
+			    (do (shutdown-now pool)
+				:eof)			    
+			    (workq/poll out-queue)))))))))
 
 ;;NOTES:
 ;;-removed blocking on filling the input queue.  That implementation was required because the condition to check whether to countdown on the latch was made based on the queue being empty, which could theoreticly happen before the job is done if the queu is filled on a different thread while workers are working.
