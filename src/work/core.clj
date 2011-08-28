@@ -110,25 +110,42 @@
     (dotimes [_ num-workers] (submit-to pool schedule-work))
     pool))
 
+;;TODO: merge with map reduce - converge on a single aggregator that graph can also use.
 (defn do-work
   ([f num-workers tasks]
      (do-work (repeat num-workers f) tasks))
   ([workers tasks]
-      (when-not (empty? tasks)
-	(let [pool (Executors/newFixedThreadPool (count workers))
-	      tasks (seq tasks)
-	      in (workq/local-queue tasks)
-	      latch (CountDownLatch. (count tasks))
-	      workers (map (fn [f]
-			     {:f f
-			      :in #(workq/poll in)
-			      :clean-up (fn [& _] (.countDown latch))})
-			   workers)]		  
-	  (doseq [worker workers]
-	    (submit-to pool #(if (empty? in) :done worker)))
-	  (.await latch)
-	  (future (two-phase-shutdown pool))))))
+     (when-not (empty? tasks)
+       (let [pool (Executors/newFixedThreadPool (count workers))
+	     in-queue (workq/local-queue)
+	     sentinel (java.util.UUID/randomUUID)
+	     _ (future (do (doseq [x tasks]
+			     (workq/offer in-queue x))
+			   (workq/offer in-queue sentinel)))
+	     ^CountDownLatch terminal-latch (CountDownLatch. 1)
+	     ^CountDownLatch mapper-latch (CountDownLatch. (count workers))
+	     terminator (fn [f x]
+			  (if (= x sentinel)
+			    ;;returning nil makes exec work loop on this thread go to sleep.
+			    (.countDown terminal-latch)
+			    (f x)))
+	     workers (map (fn [f]
+			    {:f (partial terminator f)
+			     :in #(workq/poll in-queue)})
+			  workers)]		  
+	 (doseq [worker workers]
+	   (submit-to pool
+		      #(if (= 0 (.getCount terminal-latch))
+			 (do (.countDown mapper-latch)
+			     :done)
+			 worker)))
+	 ;;block on mapper encountering the sentinel value
+	 (.await terminal-latch)
+	 ;;other mappers could still be processing tasks, ensure they finish.
+	 (.await mapper-latch)
+	 (shutdown-now pool)))))
 
+;;TODO: we should not be using map-work anywhere.  seek and destroy uses - should probably be map-reduce or graphs.
 (defn map-work
   ([f num-workers tasks]
      (map-work (repeat num-workers f) tasks))
