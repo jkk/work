@@ -62,20 +62,6 @@
 		[:c :c :a :a :a]
 		[:b :b :a :a :a]]))))))
 
-(deftest keyed-producer-consumer-test
-  (let [[put-work get-work done-work]
-	   (work/keyed-producer-consumer
-	    (fn [k v1 v2]
-	      (->> (concat v1 v2)
-		   (into #{}))))]
-    (put-work :u1 [:a :b])
-    (is (= [:u1 #{:a :b}] (get-work)))
-    (put-work :u1 [:c :d])
-    (put-work :u2 [:e])
-    (is (= [:u2 #{:e}] (get-work)))
-    (done-work :u1)
-    (is (= [:u1 #{:c :d}] (get-work)))))
-
 (deftest trivial-map-work-test
   (is (.get (future (doall (work/map-work (fn [x] (do (Thread/sleep x)
 						     1)) 200 (range 100))))
