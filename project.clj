@@ -6,4 +6,4 @@
                  [clj-sys/plumbing "0.1.5-SNAPSHOT"]
                  [store "0.2.5-SNAPSHOT"]
 		 [services "0.0.1-SNAPSHOT"]]
-  :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]])
+  :dev-dependencies [[swank-clojure "1.3.2"]])
