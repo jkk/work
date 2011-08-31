@@ -1,17 +1,20 @@
 (ns work.graph
-  (:use    [plumbing.error :only [-?> with-ex logger assert-keys]]
-	   [plumbing.core :only [?>>]]
+  (:use    [plumbing.error :only [-?> with-ex logger assert-keys ex-name cause]]
+	   [plumbing.core :only [?>> map-map]]
 	   [plumbing.serialize :only [gen-id]]
 	   [clojure.zip :only [insert-child]]
 	   [store.api :only [store]]
 	   [work.message :only [add-subscriber]])
   (:require
+   [plumbing.observer :as obs]
    [clojure.contrib.logging :as log]
    [clojure.zip :as zip]
    [work.core :as work]
    [work.message :as message]
    [clojure.contrib.zip-filter :as zf]
-   [work.queue :as queue])
+   [work.queue :as queue]
+   [clj-time.coerce :as time-coerce]
+   [clj-time.core :as time])
   (:import [java.util.concurrent BlockingQueue Executors]))
 
 (defn node
@@ -193,10 +196,6 @@
     (update-in root [:shutdown]
 	       conj (fn [] (work/two-phase-shutdown pool)))))
 
-(defn observer-rewrite [root observer]
-  (update-nodes
-   root
-   (fn [v] (assoc v :f (observer v)))))
 
 (defn graph-rewrite [root rewrites]
   (reduce
@@ -234,3 +233,49 @@
   (doseq [n (-> root all-vertices)
 	  f (:shutdown n)]
     (with-ex (logger) f)))
+
+
+
+
+(defn log-error [observer]
+  (fn [e id args]
+    (obs/log observer (-> e cause ex-name) 1)
+    ((logger) e id args)))
+
+(defn observe-node [observer {:keys [id] :as node}]
+  (let [observer (obs/sub-observer observer (if (keyword? id) (name id) id))]
+    (fn [& args]
+      (let [start (time/now)
+            result (apply with-ex (log-error observer) node args)
+            end (time/now)
+            t (try (time/in-msecs (time/interval start end))
+                   (catch Exception _ 0))]
+        (obs/log observer :time t)
+        (obs/log observer :count 1)
+        (obs/log observer :last (time-coerce/to-string (time/now)))
+        result))))
+
+(defn observer-rewrite [root observer]
+  (update-nodes
+   root
+   (fn [node] (assoc node :f (observe-node observer node)))))
+
+(defn observe-merge [[id k] old v]
+  (case k :last v (+ (or old 0) v)))
+
+
+(defn div [x y]
+  (when (and x y (> y 0))
+    (float (/ x y))))
+
+(defn observe-report [m duration]
+  (map-map
+   (fn [{:keys [time count last] :as b}]
+     (assoc b
+       :throughput (div count duration)
+       :avg-time   (div time count)
+       :p-time     (div time duration)
+       :p-data-loss (div (reduce + (vals (dissoc b :time :count :last))) count)
+       ;; TODO: %-total-time
+       ))
+   m))

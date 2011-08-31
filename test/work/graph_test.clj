@@ -2,7 +2,9 @@
   (:require [work.queue :as q]
 	    [work.message :as message]
 	    [clojure.zip :as zip]
-	       [clojure.contrib.zip-filter :as zf])
+            [clojure.contrib.zip-filter :as zf]
+            [plumbing.observer :as obs]
+            )
   (:use clojure.test
 	plumbing.core
 	plumbing.error
@@ -102,21 +104,22 @@
     (is (= (range 2 7) (seq (sort incq))))
     (is (= (range -1 4) (seq (sort idq))))))
 
+(defn test-observer []
+  (let [a (atom {})]
+    [a (obs/make-simple-observer #(swap! a update-in [%1] conj %2))]))
+
 (deftest one-node-observer-test
-  (let [a (atom 0)
-	obs (fn [{:keys [f] :as vertex}]
-	      (fn [& args]
-		(swap! a inc)
-		(apply f args)))
+  (let [[a o] (test-observer)
 	incq (q/local-queue)
 	root (-> (graph)
 		 (each (out inc incq))
 		 zip/root
-		 (observer-rewrite obs))]
+		 (observer-rewrite o))]
     (run-sync root (range 5))
     (is (= (range 1 6) (seq (sort incq))))
     ;;observes the root identity node, child, and whole graph
-    (is (= 10 @a))))
+    (is (= [1 1 1 1 1] (get @a ["root" :count])))
+    (is (= [1 1 1 1 1] (get @a ["lambda" :count])))))
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
@@ -307,17 +310,32 @@
     (is (= (range 0 5 2) (sort (wait-for-complete-results idq 3))))
     (kill-graph running)))
 
+
+(deftest one-node-observer-test
+  (let [[a o] (test-observer)
+	incq (q/local-queue)
+	root (-> (graph)
+		 (each (out inc incq))
+		 zip/root
+		 (observer-rewrite o))]
+    (run-sync root (range 5))
+    (is (= (range 1 6) (seq (sort incq))))
+    ;;observes the root identity node, child, and whole graph
+    (is (= [1 1 1 1 1] (get @a ["root" :count])))
+    (is (= [1 1 1 1 1] (get @a ["lambda" :count])))))
+
 (deftest higher-order-observation
   (let [incq (q/local-queue)
 	[a l] (atom-logger)
+        [oa o] (test-observer)
       root (-> (graph)
 	       (each (out inc incq))
 	       zip/root
-	       (observer-rewrite (fn [{:keys [f]}]
-				   #(with-ex l f %))))]
+	       (observer-rewrite o))]
     (run-sync root [1 2 "fuck" 3])
-      (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
-      (is (= "java.lang.ClassCastException: java.lang.String cannot be cast to java.lang.Number" @a))))
+    (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
+    (is (= [1]
+           (get @oa ["lambda" "java.lang.ClassCastException"]) ))))
 
 (deftest priority-in-test
   (let [{:keys [in offer queue f]} (priority-in {:f identity} 5)]
