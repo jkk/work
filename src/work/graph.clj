@@ -12,9 +12,7 @@
    [work.core :as work]
    [work.message :as message]
    [clojure.contrib.zip-filter :as zf]
-   [work.queue :as queue]
-   [clj-time.coerce :as time-coerce]
-   [clj-time.core :as time])
+   [work.queue :as queue])
   (:import [java.util.concurrent BlockingQueue Executors]))
 
 (defn node
@@ -234,48 +232,12 @@
 	  f (:shutdown n)]
     (with-ex (logger) f)))
 
-
-
-
-(defn log-error [observer]
-  (fn [e id args]
-    (obs/log observer (-> e cause ex-name) 1)
-    ((logger) e id args)))
-
-(defn observe-node [observer {:keys [id] :as node}]
-  (let [observer (obs/sub-observer observer (if (keyword? id) (name id) id))]
-    (fn [& args]
-      (let [start (time/now)
-            result (apply with-ex (log-error observer) node args)
-            end (time/now)
-            t (try (time/in-msecs (time/interval start end))
-                   (catch Exception _ 0))]
-        (obs/log observer :time t)
-        (obs/log observer :count 1)
-        (obs/log observer :last (time-coerce/to-string (time/now)))
-        result))))
+(defn observe-node [observer {:keys [id f] :as node}]
+  (assoc node :f (obs/observed-fn observer id :stats f)))
 
 (defn observer-rewrite [root observer]
-  (update-nodes
-   root
-   (fn [node] (assoc node :f (observe-node observer node)))))
-
-(defn observe-merge [[id k] old v]
-  (case k :last v (+ (or old 0) v)))
+  (->> (obs/sub-observer observer (obs/gen-key "graph"))
+       (partial observe-node)
+       (update-nodes root)))
 
 
-(defn div [x y]
-  (when (and x y (> y 0))
-    (float (/ x y))))
-
-(defn observe-report [m duration]
-  (map-map
-   (fn [{:keys [time count last] :as b}]
-     (assoc b
-       :throughput (div count duration)
-       :avg-time   (div time count)
-       :p-time     (div time duration)
-       :p-data-loss (div (reduce + (vals (dissoc b :time :count :last))) count)
-       ;; TODO: %-total-time
-       ))
-   m))

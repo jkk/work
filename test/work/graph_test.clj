@@ -104,22 +104,6 @@
     (is (= (range 2 7) (seq (sort incq))))
     (is (= (range -1 4) (seq (sort idq))))))
 
-(defn test-observer []
-  (let [a (atom {})]
-    [a (obs/make-simple-observer #(swap! a update-in [%1] conj %2))]))
-
-(deftest one-node-observer-test
-  (let [[a o] (test-observer)
-	incq (q/local-queue)
-	root (-> (graph)
-		 (each (out inc incq))
-		 zip/root
-		 (observer-rewrite o))]
-    (run-sync root (range 5))
-    (is (= (range 1 6) (seq (sort incq))))
-    ;;observes the root identity node, child, and whole graph
-    (is (= [1 1 1 1 1] (get @a ["root" :count])))
-    (is (= [1 1 1 1 1] (get @a ["lambda" :count])))))
 
 (deftest multimap-graph-test
   (let [multiq (q/local-queue)
@@ -312,7 +296,7 @@
 
 
 (deftest one-node-observer-test
-  (let [[a o] (test-observer)
+  (let [o (obs/make-atom-observer)
 	incq (q/local-queue)
 	root (-> (graph)
 		 (each (out inc incq))
@@ -321,21 +305,22 @@
     (run-sync root (range 5))
     (is (= (range 1 6) (seq (sort incq))))
     ;;observes the root identity node, child, and whole graph
-    (is (= [1 1 1 1 1] (get @a ["root" :count])))
-    (is (= [1 1 1 1 1] (get @a ["lambda" :count])))))
+    (let [r (first (vals (obs/report o {:duration 10})))]
+      (is (= 5 (get-in r [:root :count])))
+      (is (= 5 (get-in r ["lambda" :count]))))))
 
 (deftest higher-order-observation
   (let [incq (q/local-queue)
 	[a l] (atom-logger)
-        [oa o] (test-observer)
+        o (obs/make-atom-observer)
       root (-> (graph)
 	       (each (out inc incq))
 	       zip/root
 	       (observer-rewrite o))]
     (run-sync root [1 2 "fuck" 3])
     (is (= [2 3 4] (sort (wait-for-complete-results incq 5))))
-    (is (= [1]
-           (get @oa ["lambda" "java.lang.ClassCastException"]) ))))
+    (is (= 1 (get-in (first (vals (obs/report o {:duration 10})))
+                     ["lambda" "java.lang.ClassCastException"])))))
 
 (deftest priority-in-test
   (let [{:keys [in offer queue f]} (priority-in {:f identity} 5)]
