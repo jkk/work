@@ -189,11 +189,14 @@
 	(o x))))
   root)
 
-(defn schedule-refill [root refill-fn freq]
-  (let [pool (work/schedule-work #(refill root refill-fn) freq)]
+(defn schedule-refill [root refill-fn freq & [clear-on-refill?]]
+  (let [pool (work/schedule-work
+	      (fn []
+		 (when clear-on-refill?
+		   (-> root :queue .clear))
+		 (refill root refill-fn)) freq)]
     (update-in root [:shutdown]
 	       conj (fn [] (work/two-phase-shutdown pool)))))
-
 
 (defn graph-rewrite [root rewrites]
   (reduce
