@@ -1,19 +1,18 @@
 (ns work.graph-test
   (:require [work.queue :as q]
 	    [work.message :as message]
+	    [store.core :as bucket]
+	    [store.api :as store]
+	    [store.net :as net]
 	    [clojure.zip :as zip]
             [clojure.contrib.zip-filter :as zf]
-            [plumbing.observer :as obs]
-            )
+            [plumbing.observer :as obs])
   (:use clojure.test
 	plumbing.core
 	plumbing.error
 	work.graph
-	[store.core :only [bucket-keys]]
-	[store.api :only [store]]
 	[ring.adapter.jetty :only [run-jetty]]
 	[compojure.core :only [routes]]
-	[store.net :only [rest-store-handler]]
 	services.core))
 
 ;; ;;TODO: copied from core-test, need to factor out to somehwere.
@@ -127,12 +126,12 @@
 
 (defn queue-store [s spec]
   (run-jetty
-   (apply routes (rest-store-handler s))         
+   (apply routes (net/rest-store-handler s))         
    (assoc spec :join? false))
      s)
 
 (deftest rest-broker-system-test
-  (let [s (->  (store [] {:type :mem})
+  (let [s (->  (store/store [] {:type :mem})
 	       (queue-store (:remote broker-spec)))
 	b (message/sub-broker broker-spec)
 	pending (-> {:f identity}
@@ -163,7 +162,7 @@
     (run-sync root (range 4))
     (is (= [1 1 1 2 2 3]
 	     (sort (seq multiq))))
-    (is (= ["foo"] (bucket-keys (.bucket-map s))))
+    (is (= ["foo"] (bucket/keys (.bucket-map s))))
     (is (= (:item (in)) 0))
     (is (= (:item  (in)) 2))))
 

@@ -5,12 +5,12 @@
 	[plumbing.accumulators :only [draining-fn]]
 	[plumbing.cache :only [refreshing-resource]]
         [store.api :only [store mirror-remote]]
-	[store.core :only [bucket-seq bucket-keys]]
 	[services.core :only [fn-handler start-web client-wrapper
 			      js-response]]
 	[plumbing.error :only [assert-keys]]
 	[work.core :only [schedule-work]])
   (:require [clojure.contrib.logging :as log]
+	    [store.core :as bucket]
 	    [clj-time.core :as time]
 	    [clj-time.coerce :as time-coerce]))
 
@@ -47,11 +47,11 @@
   "returns map from topic -> notify subscribers"
   [store]
   (->> (.bucket-map store)   
-       bucket-seq
+       bucket/seq
        (map (fn [[topic {:keys [read]}]]
 	      (assert read)
 	      (assert topic)
-	      (let [subscriber-fns (map (comp :f second) (bucket-seq read))]
+	      (let [subscriber-fns (map (comp :f second) (bucket/seq read))]
 		[topic (partial map-fns subscriber-fns)])))
        (into {})))
 
@@ -63,7 +63,7 @@
 		      (map (fn [[topic notify]]
 			     (fn-handler (str "/" topic) notify))))
 	 server (start-web handlers (assoc subscriber :join? false))]
-    (doseq [topic (bucket-keys (.bucket-map local))]
+    (doseq [topic (bucket/keys (.bucket-map local))]
       (add-subscriber remote
 		      (assoc subscriber
 			:topic topic

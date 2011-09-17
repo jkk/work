@@ -4,13 +4,10 @@
 				 BlockingQueue
                                  PriorityBlockingQueue))
   (:use [services.core :only [client-wrapper fn-handler start-web]]
-	[store.api :only [store]]
-	[store.core :only [bucket-keys bucket-seq]]
 	[plumbing.core :only [?> ?>> keywordize-map]]
 	[plumbing.error :only [with-ex logger assert-keys]]
 	[plumbing.cache :only [refreshing-resource]]
 	[plumbing.accumulators :only [draining-fn]]
-	[store.net :only [rest-store-handler]]
 	[compojure.core :only [routes]]
         [ring.adapter.jetty :only [run-jetty]]))
 

@@ -2,9 +2,9 @@
   (:refer-clojure :exclude [peek sync])
   (:require [clj-json [core :as json]]
 	    [work.queue :as workq]
-            [clojure.contrib.logging :as log])
+            [clojure.contrib.logging :as log]
+	    [store.core :as bucket])
   (:use work.queue
-	[store.core :only [bucket-seq bucket-merge-to! bucket-merge bucket hashmap-bucket]]
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [with-accumulator]]
         [plumbing.error :only [with-ex logger]])
@@ -196,7 +196,7 @@
 ;;still forces all reduce results to be realized in memory, the right thing to do is refactor to work better with store to allow streaming merges into flushing storess, which is also the path to distributed workers merging localy flushing to remote stores.
 (defn map-reduce [map-fn reduce-fn num-workers input]
   (let [pool (Executors/newFixedThreadPool (int num-workers))
-	get-bucket #(bucket {:type :mem
+	get-bucket #(bucket/bucket {:type :mem
                              :merge (fn [_ accum new] (reduce-fn accum new))})
 	res (get-bucket)
 	in-queue (workq/local-queue)
@@ -218,20 +218,20 @@
 	 (let [b (get-bucket)]
 	   #(if (= 0 (.getCount terminal-latch))
 	      (do (try
-		   (bucket-merge-to! b res)
+		   (bucket/merge-to! b res)
 		   (finally (.countDown mapper-latch)))
 		 :done)
 	     (assoc defaults :out
 	       (fn [kvs]
 		 (doseq [[k v] kvs]
-		   (bucket-merge b k v))))))))
+		   (bucket/merge b k v))))))))
     ;;block on mapper encountering the sentinel value
     (.await terminal-latch)
     ;;other mappers could still be processing tasks, ensure they finish.
     (.await mapper-latch)
     ;;ensure all reducers are merged
     (doseq [b buckets]
-      (bucket-merge-to! b res))
+      (bucket/merge-to! b res))
     (shutdown-now pool)
     res))
 

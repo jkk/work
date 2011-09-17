@@ -1,10 +1,10 @@
 (ns work.core-test
   (:use clojure.test
-	store.core
 	[plumbing.core :only [retry wait-until]]
 	[plumbing.serialize :only [send-clj clj-worker
 				   send-json json-worker]])
-  (:require [work.core :as work])
+  (:require [work.core :as work]
+	    [store.core :as bucket])
   (:require [work.queue :as q])
   (:import [java.util.concurrent Executors]))
 
@@ -34,7 +34,7 @@
   (is (=
        {:a 13 :b 4 :c 4 :d 3}
        (into {}
-	     (bucket-seq
+	     (bucket/seq
 	      (work/map-reduce
 	       frequencies
 	       (fnil + 0 0)
@@ -50,7 +50,7 @@
   (is (=
        {:a 13 :b 4 :c 4 :d 3}
        (into {}
-	     (bucket-seq
+	     (bucket/seq
 	      (work/mapchunk-reduce
 	       frequencies
 	       (fnil + 0 0)

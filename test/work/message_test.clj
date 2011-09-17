@@ -1,11 +1,11 @@
 (ns work.message-test
   (:use work.message
-	store.api
 	clojure.test
-	[services.core :only [start-web]]
-	store.net
-	store.core)
-  (:require [work.graph :as graph]))
+	[services.core :only [start-web]])
+  (:require [work.graph :as graph]
+	    [store.core :as bucket]
+	    [store.api :as store]
+	    [store.net :as net]))
 
 (def broker-spec
      {:remote {:host "localhost"
@@ -17,10 +17,10 @@
 		   :id "service-id"}})
 
 (defn start-broker-server [s port]
-  (start-web (rest-store-handler s) {:port port :join? false}))
+  (start-web (net/rest-store-handler s) {:port port :join? false}))
 
 (deftest add-subscriber-test
-  (let [s (store [] {:type :mem})]
+  (let [s (store/store [] {:type :mem})]
     (add-subscriber s {:id "me" :topic "balls" :host "localhost"})
     (is (= ["me"] (s :keys "balls")))
     (is (= {:id "me" :topic "balls" :host "localhost"}
@@ -33,14 +33,14 @@
 (deftest topic-notifiers-test
   (let [a1 (atom [])
 	f (partial swap! a1 conj)
-	s (store [] {:type :mem})
+	s (store/store [] {:type :mem})
 	_ (add-subscriber s {:id "me" :topic "topic" :f f})
 	n (topic-notifiers s)]
     ((n "topic") 42)
     (is (= [42] @a1))))
 
 (deftest publisher-test
-  (let [s (store [] {:type :mem})
+  (let [s (store/store [] {:type :mem})
 	topic "topic1"
 	a (atom [])
 	f (partial swap! a conj)
@@ -65,7 +65,7 @@
     (is (= ["42" "42"] @a))))
 
 (deftest rest-queue-handler-test
-  (let [s (store [] {:type :mem})
+  (let [s (store/store [] {:type :mem})
 	server (start-broker-server s 4446)
 	other-server (atom nil)]
     (try (let [sub-b (sub-broker broker-spec)
@@ -75,7 +75,7 @@
 	       s1     (start-subscribers sub-b)
 	       _ (reset! other-server s1)]
 	   (Thread/sleep 500)
-	   (is (= ["foo"] (bucket-keys (.bucket-map s))))
+	   (is (= ["foo"] (bucket/keys (.bucket-map s))))
 	   (let [pub-b (pub-broker broker-spec)
 		 publish (publisher pub-b
 				    {:topic "foo"})]
@@ -88,7 +88,7 @@
 	  (when @other-server (.stop @other-server))))))
 
 (deftest stress-rest-queue-handler-test
-  (let [s (store [] {:type :mem})
+  (let [s (store/store [] {:type :mem})
 	server (start-broker-server s 4446)
 	other-server (atom nil)]
     (try (let [sub-b (sub-broker broker-spec)
