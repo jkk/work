@@ -87,7 +87,7 @@
   [{:keys [f children multimap when] :as vertex}
    & [threads]]		   
   {:f (fn [x]
-	(if (or (not when) (when x))
+	(if (and x (or (not when) (when x)))
 	  (let [fx (f x)]
 	    (doseq [cx (if multimap fx [fx])
 		    child children
@@ -242,5 +242,3 @@
   (->> (obs/sub-observer observer (obs/gen-key "graph"))
        (partial observe-node)
        (update-nodes root)))
-
-

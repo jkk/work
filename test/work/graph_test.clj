@@ -276,7 +276,7 @@
 		 (each (out identity idq) :when even?)
 		 (each (out inc incq) :when odd?)
 		 zip/root)]
-    (run-sync root (range 5))
+    (run-sync root (cons nil (range 5)))
     (is (= (range 2 5 2) (seq incq)))
     (is (= (range 0 5 2) (seq idq)))))
 
